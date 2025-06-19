@@ -19,7 +19,7 @@ def test_vector_store():
 
     if not docs:
         logging.getLogger(__name__).warning("No documents to process!")
-        return
+        assert False, "No documents found to process"
 
     # Create embeddings
     _, embeddings, metadata = processor.create_embeddings_for_docs(docs)
@@ -50,8 +50,12 @@ def test_vector_store():
     for key, value in stats.items():
         logger.info("  %s: %s", key, value)
 
+    # Assert that vector store operations succeeded
+    assert len(results) > 0
+    assert store is not None
+    assert stats["documents"] > 0
+
     store.close()
-    return store
 
 
 if __name__ == "__main__":

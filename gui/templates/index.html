@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <h1>👁️ IRIS</h1>
-            <p>Cognitive Operations Management Platform with Adaptive Semantic Search</p>
+            <p>Issuances Retrieval and Intelligence Search</p>
         </header>
 
         <div class="control-panel">
@@ -29,7 +29,7 @@
                         <label for="llm-model">LLM Model:</label>
                         <select id="llm-model" name="llm-model">
                             <option value="">Auto (Hardware-based)</option>
-                            <option value="qwen2:1.5b">Qwen2 1.5B (2-4GB RAM)</option>
+                            <option value="llama3.2:1b-instruct-q4_K_M">Llama 3.2 1B Instruct Q4 (2-4GB RAM)</option>
                             <option value="llama3.2:3b-instruct-q4_K_M">Llama 3.2 3B Instruct Q4 (4-6GB RAM)</option>
                             <option value="mistral:7b-instruct-q4_K_M">Mistral 7B Instruct Q4 (8-12GB RAM)</option>
                         </select>
@@ -538,6 +538,12 @@
                 const response = await fetch('/shutdown_everything', {
                     method: 'POST'
                 });
+                
+                // Check if we got a response
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
                 
                 if (data.error) {
@@ -545,16 +551,20 @@
                     btn.textContent = 'Shutdown Everything';
                     btn.disabled = false;
                 } else {
-                    btn.textContent = 'Shutting down GUI...';
+                    btn.textContent = 'GUI shutting down...';
                     // Show message that GUI is shutting down
-                    setTimeout(() => {
-                        alert('IRIS GUI is shutting down. You can restart it by running: python3 gui/app.py');
-                    }, 500);
+                    alert('IRIS GUI is shutting down. You can restart it by running: python3 gui/app.py');
                 }
             } catch (error) {
-                alert('Network error: ' + error.message);
-                btn.textContent = 'Shutdown Everything';
-                btn.disabled = false;
+                // Handle case where server shuts down before response is fully sent
+                if (error.message.includes('JSON.parse') || error.message.includes('Unexpected end') || error.message.includes('NetworkError')) {
+                    btn.textContent = 'GUI shutting down...';
+                    alert('IRIS GUI is shutting down. You can restart it by running: python3 gui/app.py');
+                } else {
+                    alert('Network error: ' + error.message);
+                    btn.textContent = 'Shutdown Everything';
+                    btn.disabled = false;
+                }
             }
         });
 

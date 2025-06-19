@@ -753,7 +753,7 @@ def shutdown_everything():
             import signal
 
             # Give the response time to be sent
-            time.sleep(1)
+            time.sleep(3)
             # Terminate the process
             os.kill(os.getpid(), signal.SIGTERM)
 

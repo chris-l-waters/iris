@@ -241,15 +241,31 @@ Makefile                  # Build and setup automation
   - BAAI/bge-base-en-v1.5: 10 min 30 seconds
   - 965.3mb vector databse for all three models together
 
+### 9800X3D, 64gb RAM, Pop!_OS 22.04 LTS x86_64: 
+- Document extraction : 5 min 15s, 1005 files, 13171 chunks (Default configuration)
+- Chunk embeddings (CPU):
+- all-MiniLM-L6-v2: 2m8s 
+- all-mpnet-base-v2: 27m 52s 
+- BAAI/bge-base-en-v1.5: 26m 40s
+- 992.5mb vector databse for all three models together
+
 #### Query Response Performance Benchmarks
 
 Test Query: *"What are the requirements for security clearances?"*
 
+M4: 
 | Embedding Model | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
 |----------------|------------|------------------------------|----------------------------|
 | **all-MiniLM-L6-v2** | 13s | 29.5s | 54.3s |
-| **all-mpnet-base-v2** | 13s | 21.6s\* | 32.75s |
+| **all-mpnet-base-v2** | 13s | 21.6s* | 32.75s |
 | **BAAI/bge-base-en-v1.5** | 13s | 30.8s | 32.4s† |
+
+Linux:
+| Embedding Model | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
+|----------------|------------|------------------------------|----------------------------|
+| **all-MiniLM-L6-v2** | 17s | 39s | 1m 37s |
+| **all-mpnet-base-v2** | 15.8s | 27.3s*† | 48.8s |
+| **BAAI/bge-base-en-v1.5** | 17.8s | 44.8s | 53.8s |
 
 \* most detailed; † best answer
 
@@ -264,9 +280,6 @@ Test Query: *"What are the requirements for security clearances?"*
 - ✅ **Ollama Server Control**: Start/stop server directly from GUI with real-time status
 - ✅ **Multiple Embedding Models**: Process documents with different models and instant database switching
 - ✅ **Hardware Detection**: Automatic recommendations with manual override options
-
-### Not yet implemented
-- **Testing on other systems**: will be done following initial commit.
 
 ### Planned Features
 1. **Web Backend Performance Refactor**: Hybrid architecture combining CLI power with web performance

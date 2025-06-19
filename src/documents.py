@@ -6,6 +6,8 @@ import os
 import re
 from pathlib import Path
 from typing import List, Dict, Tuple
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+import multiprocessing
 
 import numpy as np
 import pdfplumber
@@ -403,7 +405,7 @@ class LayoutAnalyzer:
             footer_count = len(reference_data.get("footer_elements", []))
             content_count = len(reference_data.get("content_elements", []))
             self.logger.info(
-                "First page analysis: %s header elements, %s footer elements, %s content elements",
+                "First page analysis: %s header, %s footer, %s content elements",
                 header_count,
                 footer_count,
                 content_count,
@@ -414,7 +416,7 @@ class LayoutAnalyzer:
     def detect_repetitive_elements(
         self, page_layout: Dict, reference_data: Dict
     ) -> Tuple[List[str], List[str]]:
-        """Compare page against reference to identify repetitive header/footer elements."""
+        """Compare page against reference to identify repetitive elements."""
         headers_to_remove = []
         footers_to_remove = []
 
@@ -670,7 +672,7 @@ class TextProcessor:
         if not self.quiet_mode:
             text_chunks = total_chunks - table_chunk_count
             self.logger.info(
-                "Table-aware chunking: %s total chunks (%s table chunks, %s text chunks)",
+                "Table-aware chunking: %s total (%s table, %s text chunks)",
                 total_chunks,
                 table_chunk_count,
                 text_chunks,
@@ -753,7 +755,7 @@ class EmbeddingManager:
         if self.model is None:
             if not self.quiet_mode:
                 self.logger.info(
-                    "Loading embedding model: %s (this may take a moment on first run)...",
+                    "Loading embedding model: %s (may take a moment on first run)...",
                     self.model_name,
                 )
             self.model = SentenceTransformer(self.model_name)
@@ -832,105 +834,227 @@ class DocumentProcessor:
         self.enable_header_footer_removal = enable_header_footer_removal
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
-        """Extract text from PDF file with layout analysis and header/footer removal."""
+        """Extract text from PDF file with parallel page processing."""
         try:
             with pdfplumber.open(pdf_path) as pdf:
-                all_content = []
+                pages = pdf.pages
+                num_pages = len(pages)
+
+                if num_pages == 0:
+                    return ""
+
+                # Process first page to get reference data for header/footer removal
                 reference_data = None
-
-                for page_num, page in enumerate(pdf.pages):
-                    # Create reference from first page for header/footer removal
-                    if page_num == 0:
-                        reference_data = self.layout_analyzer.create_clean_reference(
-                            page
-                        )
-
-                    # Extract tables from this page
-                    tables = self.pdf_extractor.extract_tables_from_page(page, page_num)
-                    table_bboxes = [table["bbox"] for table in tables]
-
-                    # Extract text content
-                    page_text = self.pdf_extractor.extract_text_outside_tables(
-                        page, table_bboxes
+                if self.enable_header_footer_removal:
+                    reference_data = self.layout_analyzer.create_clean_reference(
+                        pages[0]
                     )
 
-                    # Apply header/footer filtering (except for first page)
-                    if (
-                        self.enable_header_footer_removal
-                        and page_num > 0
-                        and reference_data
-                        and page_text
-                    ):
-                        page_layout = self.layout_analyzer.analyze_layout(page)
-                        headers_to_remove, footers_to_remove = (
-                            self.layout_analyzer.detect_repetitive_elements(
-                                page_layout, reference_data
-                            )
-                        )
+                # Determine number of workers for parallel page processing
+                # Use ncores-1, but at least 1, and not more than number of pages
+                max_workers = max(1, min(num_pages, multiprocessing.cpu_count() - 1))
 
-                        if headers_to_remove or footers_to_remove:
-                            original_length = len(page_text)
-                            page_text = self.layout_analyzer.filter_headers_footers(
-                                page_text, headers_to_remove, footers_to_remove
-                            )
-                            filtered_length = len(page_text)
+                # For small documents, use sequential processing to avoid overhead
+                if num_pages <= 5 or max_workers == 1:
+                    return self._extract_text_sequential(pages, reference_data)
 
-                            if (
-                                original_length != filtered_length
-                                and not self.quiet_mode
-                            ):
-                                filtered_chars = original_length - filtered_length
-                                header_count = len(headers_to_remove)
-                                footer_count = len(footers_to_remove)
-                                self.logger.info(
-                                    "Page %s: Filtered %s characters (%s headers, %s footers)",
-                                    page_num + 1,
-                                    filtered_chars,
-                                    header_count,
-                                    footer_count,
-                                )
-
-                    # Combine content for this page
-                    page_content = []
-
-                    # Add tables with their formatted content
-                    for table in tables:
-                        page_content.append(table["content"])
-
-                    # Add filtered page text
-                    if page_text:
-                        page_content.append(page_text)
-
-                    # Join page content
-                    if page_content:
-                        all_content.extend(page_content)
-
-                # Join all content
-                final_text = "\n\n".join(all_content)
-
-                # Log summary
-                total_tables = len(
-                    [
-                        content
-                        for content in all_content
-                        if "=== TABLE" in content and "START ===" in content
-                    ]
+                # Use safer parallel processing for larger documents
+                return self._extract_text_parallel_safe(
+                    pdf_path, reference_data, max_workers
                 )
-                if total_tables > 0 and not self.quiet_mode:
-                    self.logger.info(
-                        "Extracted %s tables from %s pages",
-                        total_tables,
-                        len(pdf.pages),
-                    )
-
-                if self.enable_header_footer_removal and not self.quiet_mode:
-                    self.logger.info("Header/footer removal applied to document")
-
-                return final_text
 
         except (FileNotFoundError, PermissionError, Exception) as e:
             self.logger.error("Error extracting text from %s: %s", pdf_path, e)
             return ""
+
+    def _extract_text_sequential(self, pages: List, reference_data: Dict) -> str:
+        """Sequential page processing (original implementation)."""
+        all_content = []
+
+        for page_num, page in enumerate(pages):
+            page_content = self._process_single_page(page, page_num, reference_data)
+            if page_content:
+                all_content.extend(page_content)
+
+        return self._finalize_content(all_content, len(pages))
+
+    def _extract_text_parallel(
+        self, pdf_path: str, pages: List, reference_data: Dict, max_workers: int
+    ) -> str:
+        """Parallel page processing for faster extraction."""
+        all_content = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all page processing tasks
+            future_to_page = {
+                executor.submit(
+                    self._process_single_page, page, page_num, reference_data
+                ): page_num
+                for page_num, page in enumerate(pages)
+            }
+
+            # Collect results in order - ensure we get ALL pages
+            page_results = {}
+            for future in future_to_page:
+                page_num = future_to_page[future]
+                try:
+                    page_content = future.result()
+                    # Always store result, even if empty (to maintain page order)
+                    page_results[page_num] = page_content if page_content else []
+                except Exception as e:
+                    self.logger.warning(f"Error processing page {page_num + 1}: {e}")
+                    # Store empty result for failed pages to maintain order
+                    page_results[page_num] = []
+
+            # Combine results in page order - process ALL pages
+            for page_num in range(len(pages)):
+                if page_num in page_results:
+                    all_content.extend(page_results[page_num])
+
+        return self._finalize_content(all_content, len(pages))
+
+    def _extract_text_parallel_safe(
+        self, pdf_path: str, reference_data: Dict, max_workers: int
+    ) -> str:
+        """Safe parallel page processing using process-based workers."""
+        try:
+            # Get total number of pages first
+            with pdfplumber.open(pdf_path) as pdf:
+                num_pages = len(pdf.pages)
+
+            if num_pages == 0:
+                return ""
+
+            # Use ProcessPoolExecutor for true isolation
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all page processing tasks
+                future_to_page = {
+                    executor.submit(
+                        _process_single_page_worker,
+                        pdf_path,
+                        page_num,
+                        reference_data,
+                        self.enable_header_footer_removal,
+                    ): page_num
+                    for page_num in range(num_pages)
+                }
+
+                # Collect results in order
+                page_results = {}
+                for future in future_to_page:
+                    page_num = future_to_page[future]
+                    try:
+                        page_content = future.result()
+                        page_results[page_num] = page_content if page_content else []
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Error processing page {page_num + 1}: {e}"
+                        )
+                        page_results[page_num] = []
+
+                # Combine results in page order
+                all_content = []
+                for page_num in range(num_pages):
+                    if page_num in page_results:
+                        all_content.extend(page_results[page_num])
+
+            return self._finalize_content(all_content, num_pages)
+
+        except Exception as e:
+            self.logger.error("Error in parallel processing: %s", e)
+            # Fallback to sequential processing
+            with pdfplumber.open(pdf_path) as pdf:
+                return self._extract_text_sequential(pdf.pages, reference_data)
+
+    def _process_single_page(
+        self, page, page_num: int, reference_data: Dict
+    ) -> List[str]:
+        """Process a single page and return its content."""
+        try:
+            # Extract tables from this page
+            tables = self.pdf_extractor.extract_tables_from_page(page, page_num)
+            table_bboxes = [table["bbox"] for table in tables]
+
+            # Extract text content
+            page_text = self.pdf_extractor.extract_text_outside_tables(
+                page, table_bboxes
+            )
+
+            # Apply header/footer filtering (except for first page)
+            if (
+                self.enable_header_footer_removal
+                and page_num > 0
+                and reference_data
+                and page_text
+            ):
+                page_layout = self.layout_analyzer.analyze_layout(page)
+                headers_to_remove, footers_to_remove = (
+                    self.layout_analyzer.detect_repetitive_elements(
+                        page_layout, reference_data
+                    )
+                )
+
+                if headers_to_remove or footers_to_remove:
+                    original_length = len(page_text)
+                    page_text = self.layout_analyzer.filter_headers_footers(
+                        page_text, headers_to_remove, footers_to_remove
+                    )
+                    filtered_length = len(page_text)
+
+                    if original_length != filtered_length and not self.quiet_mode:
+                        filtered_chars = original_length - filtered_length
+                        header_count = len(headers_to_remove)
+                        footer_count = len(footers_to_remove)
+                        self.logger.info(
+                            "Page %s: Filtered %s characters (%s headers, %s footers)",
+                            page_num + 1,
+                            filtered_chars,
+                            header_count,
+                            footer_count,
+                        )
+
+            # Combine content for this page
+            page_content = []
+
+            # Add tables with their formatted content
+            for table in tables:
+                page_content.append(table["content"])
+
+            # Add filtered page text
+            if page_text:
+                page_content.append(page_text)
+
+            return page_content
+
+        except Exception as e:
+            self.logger.warning(f"Error processing page {page_num + 1}: {e}")
+            return []
+
+    def _finalize_content(self, all_content: List[str], num_pages: int) -> str:
+        """Finalize and log content extraction results."""
+        # Join all content
+        final_text = "\n\n".join(all_content)
+
+        # Log summary
+        total_tables = len(
+            [
+                content
+                for content in all_content
+                if "=== TABLE" in content and "START ===" in content
+            ]
+        )
+
+        if total_tables > 0 and not self.quiet_mode:
+            self.logger.info(
+                "Extracted %s tables from %s pages",
+                total_tables,
+                num_pages,
+            )
+
+        if self.enable_header_footer_removal and not self.quiet_mode:
+            self.logger.info("Header/footer removal applied to document")
+
+        return final_text
 
     def clean_text(self, text: str) -> str:
         """Compatibility method - delegates to text processor."""
@@ -1022,6 +1146,71 @@ class DocumentProcessor:
         if not self.quiet_mode:
             self.logger.info("Successfully processed %s documents", len(processed_docs))
         return processed_docs
+
+
+def _process_single_page_worker(
+    pdf_path: str,
+    page_num: int,
+    reference_data: Dict,
+    enable_header_footer_removal: bool,
+) -> List[str]:
+    """Worker function for processing a single page in a separate process."""
+    try:
+        # Create fresh components in this process
+        pdf_extractor = PDFExtractor(quiet_mode=True)
+        layout_analyzer = LayoutAnalyzer(
+            quiet_mode=True, enable_header_footer_removal=enable_header_footer_removal
+        )
+
+        # Open PDF and get the specific page
+        with pdfplumber.open(pdf_path) as pdf:
+            if page_num >= len(pdf.pages):
+                return []
+
+            page = pdf.pages[page_num]
+
+            # Extract tables from this page
+            tables = pdf_extractor.extract_tables_from_page(page, page_num)
+            table_bboxes = [table["bbox"] for table in tables]
+
+            # Extract text content
+            page_text = pdf_extractor.extract_text_outside_tables(page, table_bboxes)
+
+            # Apply header/footer filtering (except for first page)
+            if (
+                enable_header_footer_removal
+                and page_num > 0
+                and reference_data
+                and page_text
+            ):
+                page_layout = layout_analyzer.analyze_layout(page)
+                headers_to_remove, footers_to_remove = (
+                    layout_analyzer.detect_repetitive_elements(
+                        page_layout, reference_data
+                    )
+                )
+
+                if headers_to_remove or footers_to_remove:
+                    page_text = layout_analyzer.filter_headers_footers(
+                        page_text, headers_to_remove, footers_to_remove
+                    )
+
+            # Combine content for this page
+            page_content = []
+
+            # Add tables with their formatted content
+            for table in tables:
+                page_content.append(table["content"])
+
+            # Add filtered page text
+            if page_text:
+                page_content.append(page_text)
+
+            return page_content
+
+    except Exception:
+        # Return empty content for failed pages
+        return []
 
 
 def save_processed_documents(documents: List[Dict], output_file: str) -> None:

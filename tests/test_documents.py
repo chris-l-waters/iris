@@ -32,7 +32,11 @@ def test_document_processing():
         logger.info(f"Embeddings shape: {embeddings.shape}")
         logger.info(f"Sample chunk: {chunks[0][:100]}...")
 
-    return docs, chunks, embeddings, metadata
+    # Assert that processing succeeded
+    assert docs is not None
+    assert chunks is not None
+    assert embeddings is not None
+    assert metadata is not None
 
 
 if __name__ == "__main__":

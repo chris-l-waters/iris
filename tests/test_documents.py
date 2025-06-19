@@ -3,6 +3,7 @@
 import logging
 import sys
 import os
+import pytest
 
 # Add the project root to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -10,6 +11,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.documents import DocumentProcessor
 
 
+@pytest.mark.skipif(
+    not os.path.exists(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "policies", "test")),
+    reason="Test PDFs not available in CI"
+)
 def test_document_processing():
     """Test document processing with sample files."""
     processor = DocumentProcessor()

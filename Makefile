@@ -1,8 +1,10 @@
 .PHONY: setup test run clean format lint download-policies
 
 setup:
-	pip install -r requirements.txt
-	pip install -r requirements-dev.txt
+	python3 -m venv venv
+	venv/bin/pip install --upgrade pip
+	venv/bin/pip install -r requirements.txt
+	venv/bin/pip install -r requirements-dev.txt
 
 test:
 	pytest -v

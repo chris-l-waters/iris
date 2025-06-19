@@ -225,6 +225,7 @@ Makefile                  # Build and setup automation
 - **Step 2**: Optional intermediate JSON save enables faster iteration and debugging
 - **Step 3**: Embedding generation converts text chunks to vectors for semantic search
 - **Step 4**: Vector database storage in model-specific ChromaDB files with DOD metadata
+- Most of the reason this runs slowly is due to the pdfplumber table detection. Luckily, it only needs to be done once.
 
 #### DOD Document Intelligence Features
 - **Number Extraction**: Robust extraction of DOD directive numbers (DODD/DODI/DODM) from filenames and content
@@ -233,6 +234,7 @@ Makefile                  # Build and setup automation
 - **Smart Boosting**: Documents in the same series receive similarity boosts (1.3x for subgroups, 1.1x for major groups)
 
 ## Performance Benchmarks
+
 ### M4 Mac, 16gb RAM: 
 - Document extraction : 4 min 13 s, 1005 files, 13171 chunks (Default configuration)
 - Chunk embeddings:
@@ -249,6 +251,14 @@ Makefile                  # Build and setup automation
 - BAAI/bge-base-en-v1.5: 26m 40s
 - 992.5mb vector databse for all three models together
 
+### 5600X, 32gb RAM, Nvidia GTX 1080, Pop!_OS 22.04 LTS x86_64: 
+- Document extraction : 11m33s, 1005 files, 13171 chunks (Default configuration)
+- Chunk embeddings (CPU):
+- all-MiniLM-L6-v2: 51s
+- all-mpnet-base-v2: 6m 54s
+- BAAI/bge-base-en-v1.5: 7m 52s
+- 921mb vector databse for all three models together
+
 #### Query Response Performance Benchmarks
 
 Test Query: *"What are the requirements for security clearances?"*
@@ -260,12 +270,19 @@ M4:
 | **all-mpnet-base-v2** | 13s | 21.6s* | 32.75s |
 | **BAAI/bge-base-en-v1.5** | 13s | 30.8s | 32.4s† |
 
-Linux:
+9800X3D, 64gb RAM, Pop!_OS 22.04 LTS x86_64:
 | Embedding Model | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
 |----------------|------------|------------------------------|----------------------------|
 | **all-MiniLM-L6-v2** | 17s | 39s | 1m 37s |
 | **all-mpnet-base-v2** | 15.8s | 27.3s*† | 48.8s |
 | **BAAI/bge-base-en-v1.5** | 17.8s | 44.8s | 53.8s |
+
+5600X, 32gb RAM, Nvidia GTX 1080, Pop!_OS 22.04 LTS x86_64:
+| Embedding Model | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
+|----------------|------------|------------------------------|----------------------------|
+| **all-MiniLM-L6-v2** | 11.8s | 19.4s | 25.4s* |
+| **all-mpnet-base-v2** | 11.9s | 15s | 21.3s |
+| **BAAI/bge-base-en-v1.5** | 12.8s | 16.9s | 25.8s† |
 
 \* most detailed; † best answer
 

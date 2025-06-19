@@ -52,4 +52,8 @@ jobs:
         python -c "from src.config import config; print('Config loaded successfully')"
         
         # Test document processor import (may fail on missing libs, that's ok)
-        python -c "try: from src.documents import DocumentProcessor; print('Document processor available'); except ImportError as e: print('Document processor unavailable (expected):', e)"
+        python -c "try:
+            from src.documents import DocumentProcessor
+            print('Document processor available')
+        except ImportError as e:
+            print('Document processor unavailable - expected:', e)"

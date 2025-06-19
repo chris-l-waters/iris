@@ -204,7 +204,7 @@ class SimpleRAG:
 Relevant policy excerpt:
 {context_preview}
 
-{'Note: LLM not available, showing simplified response.' if use_llm else ''}
+{"Note: LLM not available, showing simplified response." if use_llm else ""}
 
 Found {len(context_chunks)} relevant policy sections."""
         if return_context:

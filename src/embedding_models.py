@@ -41,7 +41,9 @@ def print_model_comparison():
     print("-" * 80)
 
     for model_name, config in EMBEDDING_MODEL_CONFIGS.items():
-        short_name = model_name.rsplit("/", maxsplit=1)[-1] if "/" in model_name else model_name
+        short_name = (
+            model_name.rsplit("/", maxsplit=1)[-1] if "/" in model_name else model_name
+        )
         print(
             f"{short_name:<25} "
             f"{config['quality_score']:<8} "

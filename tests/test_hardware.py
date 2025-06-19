@@ -1,11 +1,11 @@
 """Tests for hardware detection functionality."""
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.hardware import get_ram_gb, detect_gpu, recommend_model, get_hardware_info
+from src.hardware import detect_gpu, get_hardware_info, get_ram_gb, recommend_model
 
 
 def test_get_ram_gb():
@@ -27,7 +27,7 @@ def test_recommend_model():
     # Test with specific RAM values - RAM-based recommendations
     assert recommend_model(2) == "llama3.2:1b-instruct-q4_K_M"  # Low RAM
     assert recommend_model(4) == "llama3.2:3b-instruct-q4_K_M"  # Medium RAM
-    assert recommend_model(8) == "mistral:7b-instruct-q4_K_M"   # High RAM
+    assert recommend_model(8) == "mistral:7b-instruct-q4_K_M"  # High RAM
     assert recommend_model(16) == "mistral:7b-instruct-q4_K_M"  # Very high RAM
 
     # Test with no RAM specified (should use system RAM)

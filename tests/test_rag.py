@@ -17,8 +17,6 @@ def test_rag_init():
 
 def test_rag_init_with_custom_path():
     """Test RAG initialization with custom collection name."""
-    custom_collection = "custom_iris"
-    rag = SimpleRAG()
     # Test that we can create RAG with a custom embedding model
     rag_custom = SimpleRAG(embedding_model="all-mpnet-base-v2")
     assert rag_custom.collection_name == "iris_all_mpnet_base_v2"

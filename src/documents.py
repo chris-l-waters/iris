@@ -119,7 +119,9 @@ class PDFExtractor:
                 )
                 if total_tables > 0 and not self.quiet_mode:
                     self.logger.info(
-                        "Extracted %s tables from %s pages", total_tables, len(pdf.pages)
+                        "Extracted %s tables from %s pages",
+                        total_tables,
+                        len(pdf.pages),
                     )
 
                 return final_text
@@ -156,11 +158,16 @@ class PDFExtractor:
                             table_data.append(table_info)
                             if not self.quiet_mode:
                                 self.logger.info(
-                                    "Extracted table %s from page %s", table_num+1, page_num+1
+                                    "Extracted table %s from page %s",
+                                    table_num + 1,
+                                    page_num + 1,
                                 )
                 except Exception as e:
                     self.logger.warning(
-                        "Error extracting table %s from page %s: %s", table_num, page_num, e
+                        "Error extracting table %s from page %s: %s",
+                        table_num,
+                        page_num,
+                        e,
                     )
 
             return table_data
@@ -179,7 +186,7 @@ class PDFExtractor:
         formatted_lines = []
 
         # Add table header
-        formatted_lines.append(f"=== TABLE {page_num+1}.{table_num+1} START ===")
+        formatted_lines.append(f"=== TABLE {page_num + 1}.{table_num + 1} START ===")
 
         # Process each row
         for row in table_data:
@@ -201,7 +208,7 @@ class PDFExtractor:
                 formatted_lines.append(" || ".join(row_parts))
 
         # Add table footer
-        formatted_lines.append(f"=== TABLE {page_num+1}.{table_num+1} END ===")
+        formatted_lines.append(f"=== TABLE {page_num + 1}.{table_num + 1} END ===")
 
         return "\n".join(formatted_lines)
 
@@ -397,7 +404,9 @@ class LayoutAnalyzer:
             content_count = len(reference_data.get("content_elements", []))
             self.logger.info(
                 "First page analysis: %s header elements, %s footer elements, %s content elements",
-                header_count, footer_count, content_count
+                header_count,
+                footer_count,
+                content_count,
             )
 
         return reference_data
@@ -486,7 +495,7 @@ class LayoutAnalyzer:
         filtered_text = re.sub(r"\n\s*$", "", filtered_text)  # Trailing newlines
 
         if removed_items:
-            self.logger.debug("Removed: %s", ', '.join(removed_items))
+            self.logger.debug("Removed: %s", ", ".join(removed_items))
 
         return filtered_text.strip()
 
@@ -625,8 +634,9 @@ class TextProcessor:
                 chunks.append(table_content)
                 if not self.quiet_mode:
                     self.logger.info(
-                        "Table %s kept as single chunk (%s words)", 
-                        table_boundary['name'], table_word_count
+                        "Table %s kept as single chunk (%s words)",
+                        table_boundary["name"],
+                        table_word_count,
                     )
             else:
                 # Table is too large, but still keep it as a dedicated chunk
@@ -635,7 +645,8 @@ class TextProcessor:
                 if not self.quiet_mode:
                     self.logger.warning(
                         "Table %s exceeds chunk size (%s words) but kept intact",
-                        table_boundary['name'], table_word_count
+                        table_boundary["name"],
+                        table_word_count,
                     )
 
             last_processed_line = table_boundary["end_line"] + 1
@@ -660,7 +671,9 @@ class TextProcessor:
             text_chunks = total_chunks - table_chunk_count
             self.logger.info(
                 "Table-aware chunking: %s total chunks (%s table chunks, %s text chunks)",
-                total_chunks, table_chunk_count, text_chunks
+                total_chunks,
+                table_chunk_count,
+                text_chunks,
             )
 
         return chunks
@@ -741,7 +754,7 @@ class EmbeddingManager:
             if not self.quiet_mode:
                 self.logger.info(
                     "Loading embedding model: %s (this may take a moment on first run)...",
-                    self.model_name
+                    self.model_name,
                 )
             self.model = SentenceTransformer(self.model_name)
             if not self.quiet_mode:
@@ -833,9 +846,7 @@ class DocumentProcessor:
                         )
 
                     # Extract tables from this page
-                    tables = self.pdf_extractor.extract_tables_from_page(
-                        page, page_num
-                    )
+                    tables = self.pdf_extractor.extract_tables_from_page(page, page_num)
                     table_bboxes = [table["bbox"] for table in tables]
 
                     # Extract text content
@@ -873,7 +884,10 @@ class DocumentProcessor:
                                 footer_count = len(footers_to_remove)
                                 self.logger.info(
                                     "Page %s: Filtered %s characters (%s headers, %s footers)",
-                                    page_num+1, filtered_chars, header_count, footer_count
+                                    page_num + 1,
+                                    filtered_chars,
+                                    header_count,
+                                    footer_count,
                                 )
 
                     # Combine content for this page
@@ -904,7 +918,9 @@ class DocumentProcessor:
                 )
                 if total_tables > 0 and not self.quiet_mode:
                     self.logger.info(
-                        "Extracted %s tables from %s pages", total_tables, len(pdf.pages)
+                        "Extracted %s tables from %s pages",
+                        total_tables,
+                        len(pdf.pages),
                     )
 
                 if self.enable_header_footer_removal and not self.quiet_mode:

@@ -18,7 +18,7 @@ class SimpleVectorStore:
 
     def __init__(self, collection_name: str = None, db_path: str = None):
         """Initialize vector store with ChromaDB.
-        
+
         Args:
             collection_name: Name of the ChromaDB collection
             db_path: Legacy parameter for backward compatibility

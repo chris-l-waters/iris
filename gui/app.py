@@ -14,8 +14,8 @@ from flask import Flask, render_template, request, jsonify
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from src.hardware import get_hardware_info
-from src.config import (
+from src.hardware import get_hardware_info  # noqa: E402
+from src.config import (  # noqa: E402
     DEFAULT_WEB_PORT,
     DEFAULT_WEB_HOST,
     DEFAULT_QUERY_TIMEOUT,
@@ -74,7 +74,7 @@ def check_model_availability(model_name):
 
         models_response = ollama.list()
         # Type annotation to help pylint understand the structure
-        model_list = [model.model for model in getattr(models_response, 'models', [])]
+        model_list = [model.model for model in getattr(models_response, "models", [])]
         return model_name in model_list
     except (ImportError, ConnectionError, AttributeError):
         return False
@@ -450,7 +450,7 @@ def available_models():
 
         models_response = ollama.list()
         # Type annotation to help pylint understand the structure
-        model_list = [model.model for model in getattr(models_response, 'models', [])]
+        model_list = [model.model for model in getattr(models_response, "models", [])]
         return jsonify({"models": model_list})
     except (ImportError, ConnectionError, AttributeError) as e:
         return jsonify(
@@ -565,7 +565,7 @@ def check_docs_loaded(embedding_model="all-MiniLM-L6-v2"):
                 # Create collection name from embedding model
                 db_model_name = embedding_model.replace("/", "_").replace("-", "_")
                 collection_name = f"iris_{db_model_name}"
-                
+
                 # Check if collection exists for this embedding model
                 cursor.execute(
                     "SELECT id FROM collections WHERE name = ?", (collection_name,)
@@ -616,9 +616,7 @@ def get_available_embeddings():
                 cursor = conn.cursor()
 
                 # Get all collection names that start with "iris_"
-                cursor.execute(
-                    "SELECT name FROM collections WHERE name LIKE 'iris_%'"
-                )
+                cursor.execute("SELECT name FROM collections WHERE name LIKE 'iris_%'")
                 collections = cursor.fetchall()
 
                 for (collection_name,) in collections:

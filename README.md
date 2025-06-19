@@ -15,7 +15,40 @@ A portfolio project demonstrating edge AI deployment for querying DOD Directives
 ### Download DOD Issuances
 To generate the vector database, you will need to manually download the policies from https://esd.whs.mil/. This README assumes you will save them to policies/dodi, policies/dodm, and policies/dodd. As of 19 June 2025 there were 1005 documents retrievable from this site.
 
-### Setup
+Alternatively, a .torrent with prebuilt vector databases and policy PDFs can be used: 
+```magnet:?xt=urn:btih:566FC09B4D96054B309BCD5EBA69B3CE971A77A0&dn=iris_database&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce```
+
+### Setup (Windows)
+
+1. **Install Prerequisites**
+  - Python 3.10+: Download from https://python.org/downloads/
+    - Be sure to check "Add Python to PATH" during installation
+    - Test: Open Command Prompt → python --version
+  - Ollama: Download from https://ollama.ai/download
+    - Install the Windows executable
+    - Test: ollama --version
+2. **Setup Virtual Environment**
+  - Open Command Prompt in your IRIS folder:
+    ```powershell
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+
+  3. **Start Ollama Server**
+  - In one Command Prompt window (keep running):
+      ```powershell
+      ollama serve
+      ```
+  4. **Launch IRIS GUI**
+   - In another Command Prompt window:
+      ```powershell   
+      cd path\to\iris
+      venv\Scripts\activate
+      python gui\app.py
+      ```
+
+### Setup (Mac/Linux)
 ```bash
 # Install Ollama (prerequisite for LLM responses)
 # macOS: brew install ollama
@@ -234,57 +267,38 @@ Makefile                  # Build and setup automation
 - **Smart Boosting**: Documents in the same series receive similarity boosts (1.3x for subgroups, 1.1x for major groups)
 
 ## Performance Benchmarks
+#### Document Extraction + Embeddings
 
-### M4 Mac, 16gb RAM: 
-- Document extraction : 4 min 13 s, 1005 files, 13171 chunks (Default configuration)
-- Chunk embeddings:
-  - all-MiniLM-L6-v2: 74 seconds
-  - all-mpnet-base-v2: 8 min 51 seconds
-  - BAAI/bge-base-en-v1.5: 10 min 30 seconds
-  - 965.3mb vector databse for all three models together
-
-### 9800X3D, 64gb RAM, Pop!_OS 22.04 LTS x86_64: 
-- Document extraction : 5 min 15s, 1005 files, 13171 chunks (Default configuration)
-- Chunk embeddings (CPU):
-- all-MiniLM-L6-v2: 2m8s 
-- all-mpnet-base-v2: 27m 52s 
-- BAAI/bge-base-en-v1.5: 26m 40s
-- 992.5mb vector databse for all three models together
-
-### 5600X, 32gb RAM, Nvidia GTX 1080, Pop!_OS 22.04 LTS x86_64: 
-- Document extraction : 11m33s, 1005 files, 13171 chunks (Default configuration)
-- Chunk embeddings (CPU):
-- all-MiniLM-L6-v2: 51s
-- all-mpnet-base-v2: 6m 54s
-- BAAI/bge-base-en-v1.5: 7m 52s
-- 921mb vector databse for all three models together
+| System Configuration | Document Extraction | all-MiniLM-L6-v2 | all-mpnet-base-v2 | BAAI/bge-base-en-v1.5 | Vector DB Size |
+|----------------------|--------------------|--------------------|-------------------|----------------------|----------------|
+| **M4 MacBook Pro**<br>10 core CPU/GPU, 16GB RAM | 4m 13s | 74s | 8m 51s | 10m 30s | 965.3 MB |
+| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | 5m 15s | 2m 8s | 27m 52s | 26m 40s | 992.5 MB |
+| **AMD 5600X + GTX 1080**<br>32GB RAM, 8GB VRAM, Pop!_OS 22.04 | 11m 33s | 51s | 6m 54s | 7m 52s | 921 MB |
 
 #### Query Response Performance Benchmarks
+##### Test Query: *"What are the requirements for security clearances?"*
 
-Test Query: *"What are the requirements for security clearances?"*
-
-M4: 
-| Embedding Model | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
+| M4, 10 core CPU/GPU | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
 |----------------|------------|------------------------------|----------------------------|
 | **all-MiniLM-L6-v2** | 13s | 29.5s | 54.3s |
 | **all-mpnet-base-v2** | 13s | 21.6s* | 32.75s |
 | **BAAI/bge-base-en-v1.5** | 13s | 30.8s | 32.4s† |
 
-9800X3D, 64gb RAM, Pop!_OS 22.04 LTS x86_64:
-| Embedding Model | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
+| 9800X3D | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
 |----------------|------------|------------------------------|----------------------------|
 | **all-MiniLM-L6-v2** | 17s | 39s | 1m 37s |
 | **all-mpnet-base-v2** | 15.8s | 27.3s*† | 48.8s |
 | **BAAI/bge-base-en-v1.5** | 17.8s | 44.8s | 53.8s |
 
-5600X, 32gb RAM, Nvidia GTX 1080, Pop!_OS 22.04 LTS x86_64:
-| Embedding Model | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
+| 5600X/GTX 1080  | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
 |----------------|------------|------------------------------|----------------------------|
 | **all-MiniLM-L6-v2** | 11.8s | 19.4s | 25.4s* |
 | **all-mpnet-base-v2** | 11.9s | 15s | 21.3s |
 | **BAAI/bge-base-en-v1.5** | 12.8s | 16.9s | 25.8s† |
 
 \* most detailed; † best answer
+
+Windows 10 was tested for installation and verification, not benchmarking; I only have Windows VM's available and don't run it on bare metal.
 
 ## Development Status
 
@@ -298,11 +312,10 @@ M4:
 - ✅ **Multiple Embedding Models**: Process documents with different models and instant database switching
 - ✅ **Hardware Detection**: Automatic recommendations with manual override options
 
-### Planned Features
+### Future, possible features
 1. **Web Backend Performance Refactor**: Hybrid architecture combining CLI power with web performance
 2. Windows installer with model downloading
 3. MacOS installer and distribution optimization
-4. Performance optimization and final polish
 
 ## License
 

@@ -12,8 +12,14 @@ from src.documents import DocumentProcessor
 
 
 @pytest.mark.skipif(
-    not os.path.exists(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "policies", "test")),
-    reason="Test PDFs not available in CI"
+    not os.path.exists(
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "policies",
+            "test",
+        )
+    ),
+    reason="Test PDFs not available in CI",
 )
 def test_document_processing():
     """Test document processing with sample files."""

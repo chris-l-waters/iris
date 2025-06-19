@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRIS - DOD Directive RAG System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>👁️ IRIS</h1>
+            <p>Cognitive Operations Management Platform with Adaptive Semantic Search</p>
+        </header>
+
+        <div class="control-panel">
+            <div class="model-selection">
+                <h2>Model Configuration</h2>
+                <div class="model-controls">
+                    <div class="control-group">
+                        <label for="embedding-model">Embedding Model:</label>
+                        <select id="embedding-model" name="embedding-model">
+                            <option value="all-MiniLM-L6-v2" {{ 'selected' if hardware_info.recommended_embedding == 'all-MiniLM-L6-v2' else '' }}>all-MiniLM-L6-v2 (Fast - 200MB)</option>
+                            <option value="all-mpnet-base-v2" {{ 'selected' if hardware_info.recommended_embedding == 'all-mpnet-base-v2' else '' }}>all-mpnet-base-v2 (Policy Docs - 800MB)</option>
+                            <option value="BAAI/bge-base-en-v1.5" {{ 'selected' if hardware_info.recommended_embedding == 'BAAI/bge-base-en-v1.5' else '' }}>BAAI/bge-base-en-v1.5 (High Accuracy - 850MB)</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="llm-model">LLM Model:</label>
+                        <select id="llm-model" name="llm-model">
+                            <option value="">Auto (Hardware-based)</option>
+                            <option value="qwen2:1.5b">Qwen2 1.5B (2-4GB RAM)</option>
+                            <option value="llama3.2:3b-instruct-q4_K_M">Llama 3.2 3B Instruct Q4 (4-6GB RAM)</option>
+                            <option value="mistral:7b-instruct-q4_K_M">Mistral 7B Instruct Q4 (8-12GB RAM)</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <div class="model-status">
+                            <span class="status-label">Model Status:</span>
+                            <span class="status-indicator" id="model-status-indicator">🔴 Unloaded</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="system-status">
+                <h2>System Status</h2>
+                <div class="status-compact">
+                    <div class="status-row">
+                        <span class="label">Hardware:</span>
+                        <span class="value">{{ hardware_info.ram_gb }}GB RAM, {{ hardware_info.cpu_cores }} cores{{ ', GPU' if hardware_info.has_gpu else '' }} | Rec: {{ hardware_info.recommended_model }}</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="label">Status:</span>
+                        <span class="value">Docs: <span class="status-indicator" id="docs-status">{{ 'Loaded' if docs_loaded else 'Not Loaded' }}</span> | System: <span class="status-indicator" id="system-status">{{ 'Ready' if system_ready else 'Not Ready' }}</span></span>
+                    </div>
+                    <div class="status-row">
+                        <span class="label">Available Embeddings:</span>
+                        <span class="value" id="available-embeddings">Loading...</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="label">Ollama Server:</span>
+                        <span class="value">
+                            <span class="status-indicator" id="ollama-server-status">🟡 Checking...</span>
+                            <button id="ollama-server-btn" class="btn btn-secondary btn-small" disabled style="margin-left: 10px;">
+                                Starting...
+                            </button>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if not docs_loaded %}
+        <div class="documents-section">
+            <h2>Document Loading</h2>
+            <p>No database found. Select document folders to create the vector database and enable queries.</p>
+            
+            <div class="document-loading-controls">
+                <button id="select-folders-btn" class="btn btn-primary">Select Document Folders</button>
+                <input type="file" id="folder-input" webkitdirectory multiple style="display: none;">
+                
+                <div id="selected-folders" class="selected-folders" style="display: none;">
+                    <h4>Selected Folders:</h4>
+                    <ul id="folders-list"></ul>
+                    
+                    <div class="processing-controls">
+                        <div class="control-group">
+                            <label for="processing-embedding-model">Embedding Model for Processing:</label>
+                            <select id="processing-embedding-model" name="processing-embedding-model">
+                                <option value="all-MiniLM-L6-v2">all-MiniLM-L6-v2 (Fast - 200MB)</option>
+                                <option value="all-mpnet-base-v2">all-mpnet-base-v2 (Policy Docs - 800MB)</option>
+                                <option value="BAAI/bge-base-en-v1.5">BAAI/bge-base-en-v1.5 (High Accuracy - 850MB)</option>
+                            </select>
+                        </div>
+                        <button id="process-docs-btn" class="btn btn-success">Process and Generate Embeddings</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="load-status" class="status-message"></div>
+            <div id="terminal-output" class="terminal-output" style="display: none;">
+                <div class="terminal-header">
+                    <span>🖥️ Processing Output</span>
+                    <button id="close-terminal" class="btn-close">×</button>
+                </div>
+                <div id="terminal-content" class="terminal-content"></div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="query-section">
+            <h2>Query DOD Policies</h2>
+            <form id="query-form">
+                <div class="input-group">
+                    <textarea 
+                        id="question" 
+                        name="question" 
+                        placeholder="Ask a question about DOD policies... (e.g., 'What is the policy on military leave?')"
+                        rows="3"
+                        required
+                    ></textarea>
+                    <button type="submit" class="btn btn-primary" {{ 'disabled' if not system_ready else '' }}>
+                        Submit Query
+                    </button>
+                </div>
+            </form>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <span>Processing your query...</span>
+            </div>
+
+            <div id="response-section" class="response-section hidden">
+                <h3>Response</h3>
+                <div id="response-content" class="response-content"></div>
+            </div>
+
+            <div id="error-section" class="error-section hidden">
+                <h3>Error</h3>
+                <div id="error-content" class="error-content"></div>
+            </div>
+        </div>
+
+        <div class="help-section">
+            <h2>Example Queries</h2>
+            <ul class="example-queries">
+                <li><button class="example-btn">What is the policy on military leave?</button></li>
+                <li><button class="example-btn">How do I request a security clearance?</button></li>
+                <li><button class="example-btn">What are the requirements for promotion?</button></li>
+                <li><button class="example-btn">What is the dress code policy?</button></li>
+            </ul>
+        </div>
+
+        <div class="shutdown-section">
+            <button id="shutdown-btn" class="btn btn-danger">Shutdown Everything</button>
+        </div>
+    </div>
+
+    <script>
+        
+        // Form submission
+        document.getElementById('query-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const question = document.getElementById('question').value.trim();
+            if (!question) return;
+
+            const embeddingModel = document.getElementById('embedding-model').value;
+            const llmModel = document.getElementById('llm-model').value;
+
+            showLoading();
+            hideResponse();
+            hideError();
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('question', question);
+                formData.append('embedding_model', embeddingModel);
+                formData.append('llm_model', llmModel);
+
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+                hideLoading();
+
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    showResponse(data.response);
+                }
+            } catch (error) {
+                hideLoading();
+                showError('Network error: ' + error.message);
+            }
+        });
+
+        // Folder selection
+        let selectedFolders = [];
+        
+        document.getElementById('select-folders-btn')?.addEventListener('click', function() {
+            document.getElementById('folder-input').click();
+        });
+
+        document.getElementById('folder-input')?.addEventListener('change', function(e) {
+            const files = Array.from(e.target.files);
+            selectedFolders = [];
+            
+            // Extract unique folder paths from selected files
+            const folderPaths = new Set();
+            files.forEach(file => {
+                const pathParts = file.webkitRelativePath.split('/');
+                if (pathParts.length > 1) {
+                    folderPaths.add(pathParts[0]); // Root folder name
+                }
+            });
+            
+            selectedFolders = Array.from(folderPaths);
+            
+            if (selectedFolders.length > 0) {
+                // Show selected folders
+                const foldersList = document.getElementById('folders-list');
+                foldersList.innerHTML = '';
+                selectedFolders.forEach(folder => {
+                    const li = document.createElement('li');
+                    li.textContent = folder;
+                    foldersList.appendChild(li);
+                });
+                
+                document.getElementById('selected-folders').style.display = 'block';
+            }
+        });
+
+        // Process documents
+        document.getElementById('process-docs-btn')?.addEventListener('click', async function() {
+            const btn = this;
+            const status = document.getElementById('load-status');
+            const embeddingModel = document.getElementById('processing-embedding-model').value;
+            
+            if (selectedFolders.length === 0) {
+                status.textContent = 'Please select folders first';
+                status.className = 'status-message error';
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            status.textContent = 'Starting document processing...';
+            status.className = 'status-message loading';
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('embedding_model', embeddingModel);
+                formData.append('selected_folders', JSON.stringify(selectedFolders));
+
+                const response = await fetch('/load_docs', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    status.textContent = 'Error: ' + data.error;
+                    status.className = 'status-message error';
+                    btn.disabled = false;
+                    btn.textContent = 'Process and Generate Embeddings';
+                } else if (data.task_id) {
+                    // Start streaming the task output
+                    status.textContent = 'Processing started - see terminal output below';
+                    status.className = 'status-message loading';
+                    btn.textContent = 'Processing...';
+                    
+                    // Show terminal and start streaming
+                    showTerminal();
+                    streamTaskOutput(data.task_id, btn, status);
+                }
+            } catch (error) {
+                status.textContent = 'Network error: ' + error.message;
+                status.className = 'status-message error';
+                btn.disabled = false;
+                btn.textContent = 'Process and Generate Embeddings';
+            }
+        });
+
+        // Terminal functionality
+        function showTerminal() {
+            const terminal = document.getElementById('terminal-output');
+            const content = document.getElementById('terminal-content');
+            terminal.style.display = 'block';
+            content.innerHTML = ''; // Clear previous content
+        }
+
+        function hideTerminal() {
+            document.getElementById('terminal-output').style.display = 'none';
+        }
+
+        function appendTerminalLine(line) {
+            const content = document.getElementById('terminal-content');
+            const lineElement = document.createElement('div');
+            lineElement.textContent = line;
+            content.appendChild(lineElement);
+            content.scrollTop = content.scrollHeight; // Auto-scroll
+        }
+
+        function streamTaskOutput(taskId, btn, status) {
+            const eventSource = new EventSource(`/stream_task/${taskId}`);
+            
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'output') {
+                        appendTerminalLine(data.line);
+                    } else if (data.type === 'status') {
+                        if (data.status === 'completed') {
+                            status.textContent = 'Documents processed successfully!';
+                            status.className = 'status-message success';
+                            btn.textContent = 'Process and Generate Embeddings';
+                            btn.disabled = false;
+                            eventSource.close();
+                            
+                            // Reload page after a delay to update status
+                            setTimeout(() => location.reload(), 3000);
+                        } else if (data.status === 'failed') {
+                            status.textContent = 'Document processing failed - see terminal output';
+                            status.className = 'status-message error';
+                            btn.textContent = 'Process and Generate Embeddings';
+                            btn.disabled = false;
+                            eventSource.close();
+                        }
+                    } else if (data.error) {
+                        appendTerminalLine(`Error: ${data.error}`);
+                        status.textContent = 'Error occurred during processing';
+                        status.className = 'status-message error';
+                        btn.textContent = 'Process and Generate Embeddings';
+                        btn.disabled = false;
+                        eventSource.close();
+                    }
+                } catch (e) {
+                    console.error('Error parsing SSE data:', e);
+                }
+            };
+            
+            eventSource.onerror = function(event) {
+                console.error('SSE connection error:', event);
+                status.textContent = 'Connection error during processing';
+                status.className = 'status-message error';
+                btn.textContent = 'Process and Generate Embeddings';
+                btn.disabled = false;
+                eventSource.close();
+            };
+        }
+
+        // Close terminal button
+        document.getElementById('close-terminal')?.addEventListener('click', hideTerminal);
+
+        // Automatic model loading when selection changes
+        document.getElementById('llm-model').addEventListener('change', async function() {
+            const llmModel = this.value;
+            const statusIndicator = document.getElementById('model-status-indicator');
+            
+            if (llmModel) {
+                // Check if ollama server is running first
+                try {
+                    const serverStatusResponse = await fetch('/ollama_server_status');
+                    const serverData = await serverStatusResponse.json();
+                    
+                    if (!serverData.running) {
+                        // Server not running - don't show error, just update status
+                        statusIndicator.textContent = '🔴 Server Off';
+                        return;
+                    }
+                } catch (error) {
+                    // If we can't check server status, proceed with model loading
+                }
+                
+                // Load the selected model automatically
+                statusIndicator.textContent = '🟡 Loading...';
+                try {
+                    const formData = new URLSearchParams();
+                    formData.append('llm_model', llmModel);
+                    
+                    const response = await fetch('/load_model', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        statusIndicator.textContent = '🔴 Error';
+                        // Only show alert for non-server errors
+                        if (!data.error.includes('server is not running')) {
+                            alert('Error loading model: ' + data.error);
+                        }
+                    } else {
+                        statusIndicator.textContent = '🟢 Loaded';
+                    }
+                } catch (error) {
+                    statusIndicator.textContent = '🔴 Error';
+                    alert('Network error: ' + error.message);
+                }
+            } else {
+                // Auto selection - unload current model
+                statusIndicator.textContent = '🟡 Unloading...';
+                try {
+                    await fetch('/unload_model', {
+                        method: 'POST'
+                    });
+                    statusIndicator.textContent = '🔴 Unloaded';
+                } catch (error) {
+                    statusIndicator.textContent = '🔴 Unloaded';
+                }
+            }
+        });
+
+        // Ollama server control
+        document.getElementById('ollama-server-btn').addEventListener('click', async function() {
+            const btn = this;
+            const statusIndicator = document.getElementById('ollama-server-status');
+            const isStarting = btn.textContent.includes('Start');
+            
+            btn.disabled = true;
+            
+            if (isStarting) {
+                // Start server
+                btn.textContent = 'Starting...';
+                statusIndicator.textContent = '🟡 Starting...';
+                
+                try {
+                    const response = await fetch('/start_ollama_server', {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        statusIndicator.textContent = '🔴 Error';
+                        alert('Error starting server: ' + data.error);
+                        btn.textContent = 'Start Server';
+                        btn.disabled = false;
+                    } else {
+                        statusIndicator.textContent = '🟢 Running';
+                        btn.textContent = 'Stop Server';
+                        btn.disabled = false;
+                    }
+                } catch (error) {
+                    statusIndicator.textContent = '🔴 Error';
+                    alert('Network error: ' + error.message);
+                    btn.textContent = 'Start Server';
+                    btn.disabled = false;
+                }
+            } else {
+                // Stop server
+                btn.textContent = 'Stopping...';
+                statusIndicator.textContent = '🟡 Stopping...';
+                
+                try {
+                    const response = await fetch('/stop_ollama_server', {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        statusIndicator.textContent = '🔴 Error';
+                        alert('Error stopping server: ' + data.error);
+                        btn.textContent = 'Stop Server';
+                        btn.disabled = false;
+                    } else {
+                        statusIndicator.textContent = '🔴 Stopped';
+                        btn.textContent = 'Start Server';
+                        btn.disabled = false;
+                    }
+                } catch (error) {
+                    statusIndicator.textContent = '🔴 Stopped';
+                    btn.textContent = 'Start Server';
+                    btn.disabled = false;
+                }
+            }
+        });
+
+        // Check server status on page load
+        async function checkServerStatus() {
+            const statusIndicator = document.getElementById('ollama-server-status');
+            const serverBtn = document.getElementById('ollama-server-btn');
+            
+            try {
+                const response = await fetch('/ollama_server_status');
+                const data = await response.json();
+                
+                if (data.running) {
+                    statusIndicator.textContent = '🟢 Running';
+                    serverBtn.textContent = 'Stop Server';
+                } else {
+                    statusIndicator.textContent = '🔴 Stopped';
+                    serverBtn.textContent = 'Start Server';
+                }
+                serverBtn.disabled = false;
+            } catch (error) {
+                statusIndicator.textContent = '🔴 Error';
+                serverBtn.textContent = 'Start Server';
+                serverBtn.disabled = false;
+            }
+        }
+
+        // Initialize server status on page load
+        checkServerStatus();
+
+        // Initialize docs status on page load
+        updateDocsStatus();
+
+        // Initialize model status on page load
+        checkModelStatus();
+
+        // Shutdown everything button
+        document.getElementById('shutdown-btn').addEventListener('click', async function() {
+            if (!confirm('Are you sure you want to shutdown everything? This will unload all models, stop the Ollama server, and close the GUI.')) {
+                return;
+            }
+            
+            const btn = this;
+            btn.disabled = true;
+            btn.textContent = 'Shutting down...';
+            
+            try {
+                const response = await fetch('/shutdown_everything', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error during shutdown: ' + data.error);
+                    btn.textContent = 'Shutdown Everything';
+                    btn.disabled = false;
+                } else {
+                    btn.textContent = 'Shutting down GUI...';
+                    // Show message that GUI is shutting down
+                    setTimeout(() => {
+                        alert('IRIS GUI is shutting down. You can restart it by running: python3 gui/app.py');
+                    }, 500);
+                }
+            } catch (error) {
+                alert('Network error: ' + error.message);
+                btn.textContent = 'Shutdown Everything';
+                btn.disabled = false;
+            }
+        });
+
+        // Update docs status immediately when embedding model changes
+        document.getElementById('embedding-model').addEventListener('change', function() {
+            updateDocsStatus();
+        });
+
+        // Function to update docs status immediately
+        async function updateDocsStatus() {
+            try {
+                const embeddingModel = document.getElementById('embedding-model').value;
+                const response = await fetch(`/status?embedding_model=${encodeURIComponent(embeddingModel)}`);
+                const data = await response.json();
+                
+                document.getElementById('docs-status').textContent = data.docs_loaded ? 'Loaded' : 'Not Loaded';
+                document.getElementById('system-status').textContent = data.system_ready ? 'Ready' : 'Not Ready';
+                
+                // Update available embeddings
+                const availableEmbeddings = data.available_embeddings || [];
+                const embeddingsElement = document.getElementById('available-embeddings');
+                if (availableEmbeddings.length > 0) {
+                    embeddingsElement.textContent = availableEmbeddings.join(', ');
+                } else {
+                    embeddingsElement.textContent = 'None';
+                }
+                
+                // Enable/disable query form based on status
+                const submitBtn = document.querySelector('#query-form button[type="submit"]');
+                submitBtn.disabled = !data.system_ready;
+            } catch (error) {
+                // Status check failed silently - not critical for functionality
+            }
+        }
+
+        // Example queries
+        document.querySelectorAll('.example-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.getElementById('question').value = this.textContent;
+            });
+        });
+
+        // Utility functions
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function showResponse(response) {
+            document.getElementById('response-content').textContent = response;
+            document.getElementById('response-section').classList.remove('hidden');
+        }
+
+        function hideResponse() {
+            document.getElementById('response-section').classList.add('hidden');
+        }
+
+        function showError(error) {
+            document.getElementById('error-content').textContent = error;
+            document.getElementById('error-section').classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('error-section').classList.add('hidden');
+        }
+
+        // Check model status on page load
+        async function checkModelStatus() {
+            let llmModel = document.getElementById('llm-model').value;
+            const statusIndicator = document.getElementById('model-status-indicator');
+            
+            // If no model selected (auto), use the recommended model
+            if (!llmModel) {
+                llmModel = '{{ hardware_info.recommended_model }}';
+            }
+            
+            // First check if server is running
+            try {
+                const serverResponse = await fetch('/ollama_server_status');
+                const serverData = await serverResponse.json();
+                
+                if (!serverData.running) {
+                    statusIndicator.textContent = '🔴 Server Off';
+                    return;
+                }
+            } catch (error) {
+                statusIndicator.textContent = '🔴 Server Off';
+                return;
+            }
+            
+            // Server is running, check model status
+            try {
+                const response = await fetch(`/model_status?model=${encodeURIComponent(llmModel)}`);
+                const data = await response.json();
+                
+                if (data.loaded) {
+                    statusIndicator.textContent = '🟢 Loaded';
+                } else {
+                    statusIndicator.textContent = '🔴 Unloaded';
+                }
+            } catch (error) {
+                statusIndicator.textContent = '🔴 Unloaded';
+            }
+        }
+
+        // Refresh status periodically
+        setInterval(async function() {
+            // Update docs status
+            await updateDocsStatus();
+            
+            // Also check model status if not currently loading
+            const statusIndicator = document.getElementById('model-status-indicator');
+            if (!statusIndicator.textContent.includes('Loading') && !statusIndicator.textContent.includes('Unloading')) {
+                checkModelStatus();
+            }
+            
+            // Also check server status if not currently starting/stopping
+            const serverStatusIndicator = document.getElementById('ollama-server-status');
+            if (!serverStatusIndicator.textContent.includes('Starting') && !serverStatusIndicator.textContent.includes('Stopping')) {
+                checkServerStatus();
+            }
+        }, 10000); // Check every 10 seconds
+        
+    </script>
+</body>
+</html>

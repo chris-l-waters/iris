@@ -1,0 +1,41 @@
+# IRIS RAG System Configuration
+# This file contains all configurable constants used throughout the application.
+# Modify these values to adjust system behavior without changing code.
+
+# Document processing configuration
+document_processing:
+  default_chunk_size: 500      # Words per chunk when splitting documents
+  default_chunk_overlap: 50    # Word overlap between consecutive chunks
+  
+  # Layout analysis constants
+  header_footer_zone_ratio: 0.1  # Fraction of page height for header/footer zones (0.1 = 10%)
+  line_tolerance_pixels: 5       # Pixel tolerance for grouping text on same line
+  
+  # Text filtering thresholds
+  min_header_footer_chars: 50    # Minimum characters to not be header/footer
+  max_header_footer_words: 3     # Maximum words for header/footer detection
+  min_line_length: 15           # Minimum line length to include in cleaned text
+  first_page_sample_chars: 2000  # Characters to extract as first page sample
+
+# Web interface configuration
+web_interface:
+  default_port: 8080           # Port for Flask web interface
+  default_host: "localhost"    # Host for Flask web interface
+
+# Timeout configurations (in seconds)
+timeouts:
+  default_query_timeout: 60    # Query processing timeout
+  default_load_docs_timeout: 300  # Document loading timeout (5 minutes)
+
+# ChromaDB configuration
+chromadb:
+  default_persist_dir: "database"        # Directory for ChromaDB persistence
+  default_collection_name: "iris_documents"  # Default collection name
+  similarity_metric: "cosine"            # Distance metric for similarity search
+
+# LLM configuration
+llm:
+  default_context_window: 4096          # Default context window size for all models
+  fallback_max_tokens: 256              # Default max tokens when model config not found
+  fallback_temperature: 0.7             # Default temperature when model config not found
+  fallback_top_p: 0.95                  # Default top_p when model config not found

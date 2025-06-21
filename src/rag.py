@@ -1,16 +1,172 @@
 """Core RAG implementation for DOD directive querying."""
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict
 from .documents import DocumentProcessor
 from .vectorstore import SimpleVectorStore
 from .llm import LLMProcessor
+from .config import config
 
 
 def get_major_group(doc_number):
+    """Extract major group from document number (first digit * 1000)."""
     if not doc_number:
         return None
     return int(doc_number.split(".")[0][:1]) * 1000
+
+
+def get_subgroup(doc_number):
+    """Extract subgroup from document number (second digit * 100)."""
+    if not doc_number or len(doc_number.split(".")[0]) < 2:
+        return None
+    return int(doc_number.split(".")[0][:2]) * 100
+
+
+def get_specific_range(doc_number):
+    """Extract specific range from document number (first 3 digits * 10)."""
+    if not doc_number or len(doc_number.split(".")[0]) < 3:
+        return None
+    return int(doc_number.split(".")[0][:3]) * 10
+
+
+class DocumentAwareRanker:
+    """Enhanced ranking system that boosts related chunks based on document similarity."""
+
+    def __init__(self):
+        """Initialize ranker with configuration from config.yml."""
+        self.enabled = config.ranking_enabled
+        self.same_document_boost = config.ranking_same_document_boost
+        self.same_doc_number_boost = config.ranking_same_doc_number_boost
+        self.same_specific_range_boost = config.ranking_same_specific_range_boost
+        self.same_subgroup_boost = config.ranking_same_subgroup_boost
+        self.same_major_group_boost = config.ranking_same_major_group_boost
+        self.adjacent_chunk_boost = config.ranking_adjacent_chunk_boost
+        self.near_chunk_boost = config.ranking_near_chunk_boost
+        self.nearby_chunk_boost = config.ranking_nearby_chunk_boost
+
+    def get_adjacency_boost(self, top_result: Dict, current_result: Dict) -> float:
+        """Calculate adjacency boost factor based on chunk distance within same document."""
+        # Adjacency only applies within same document file
+        top_filename = top_result.get("filename")
+        current_filename = current_result.get("filename")
+
+        if not top_filename or not current_filename or top_filename != current_filename:
+            return 1.0  # No adjacency boost across different files
+
+        top_chunk_idx = top_result.get("chunk_index")
+        current_chunk_idx = current_result.get("chunk_index")
+
+        if top_chunk_idx is None or current_chunk_idx is None:
+            return 1.0  # No adjacency boost if chunk indices are missing
+
+        distance = abs(current_chunk_idx - top_chunk_idx)
+
+        if distance == 1:
+            return self.adjacent_chunk_boost  # Adjacent chunks (±1)
+        elif distance == 2:
+            return self.near_chunk_boost  # Near chunks (±2)
+        elif distance <= 5:
+            return self.nearby_chunk_boost  # Nearby chunks (±3-5)
+        else:
+            return 1.0  # Same document but not adjacent
+
+    def rank_results(self, results: List[Dict]) -> List[Dict]:
+        """Apply document-aware ranking to search results."""
+        if not self.enabled or not results or len(results) <= 1:
+            return results
+
+        # Create a copy to avoid modifying original results
+        ranked_results = [result.copy() for result in results]
+
+        # Get top result as reference for boosting decisions
+        top_result = ranked_results[0]
+        top_filename = top_result.get("filename")
+        top_doc_number = top_result.get("doc_number")
+
+        # Extract reference patterns for comparison
+        top_specific_range = None
+        top_subgroup = None
+        top_major_group = None
+        if top_doc_number:
+            top_specific_range = get_specific_range(top_doc_number)
+            top_subgroup = get_subgroup(top_doc_number)
+            top_major_group = get_major_group(top_doc_number)
+
+        # Apply de-boosting to unrelated chunks (preserves top result's position)
+        # Process all results except the top one (which stays unchanged)
+        for i in range(1, len(ranked_results)):
+            result = ranked_results[i]
+            result_filename = result.get("filename")
+            result_doc_number = result.get("doc_number")
+
+            # Track what relationship this chunk has to top result
+            relationship = None
+            original_similarity = result["similarity"]
+
+            # Check relationship hierarchy (highest priority first)
+            if result_filename and top_filename and result_filename == top_filename:
+                relationship = "same_document"
+            elif (
+                result_doc_number
+                and top_doc_number
+                and result_doc_number == top_doc_number
+            ):
+                relationship = "same_doc_number"
+            elif (
+                result_doc_number
+                and top_specific_range
+                and get_specific_range(result_doc_number) == top_specific_range
+            ):
+                relationship = "same_specific_range"
+            elif (
+                result_doc_number
+                and top_subgroup
+                and get_subgroup(result_doc_number) == top_subgroup
+            ):
+                relationship = "same_subgroup"
+            elif (
+                result_doc_number
+                and top_major_group
+                and get_major_group(result_doc_number) == top_major_group
+            ):
+                relationship = "same_major_group"
+            else:
+                relationship = "unrelated"
+
+            # Apply document relationship boost
+            document_boost = 1.0
+            if relationship == "same_document":
+                document_boost = self.same_document_boost
+            elif relationship == "same_doc_number":
+                document_boost = self.same_doc_number_boost
+            elif relationship == "same_specific_range":
+                document_boost = self.same_specific_range_boost
+            elif relationship == "same_subgroup":
+                document_boost = self.same_subgroup_boost
+            elif relationship == "same_major_group":
+                document_boost = self.same_major_group_boost
+            else:  # unrelated
+                # Apply de-boost factor as inverse of the weakest related boost
+                document_boost = 1.0 / self.same_major_group_boost
+
+            # Apply adjacency boost (multiplicative with document boost)
+            adjacency_boost = self.get_adjacency_boost(top_result, result)
+
+            # Calculate total boost (multiplicative)
+            total_boost = document_boost * adjacency_boost
+            result["similarity"] *= total_boost
+
+            # Store debugging information
+            result["_original_similarity"] = original_similarity
+            result["_relationship"] = relationship
+            result["_document_boost"] = document_boost
+            result["_adjacency_boost"] = adjacency_boost
+            result["_total_boost"] = total_boost
+
+        # Re-sort by updated similarity scores
+        ranked_results.sort(key=lambda x: x["similarity"], reverse=True)
+
+        return ranked_results
 
 
 class SimpleRAG:
@@ -44,6 +200,7 @@ class SimpleRAG:
         self.processor = DocumentProcessor(embedding_model)
         self.vector_store = None
         self.llm = LLMProcessor(model_name)
+        self.ranker = DocumentAwareRanker()
         self._documents_loaded = False
 
     def _ensure_vector_store(self):
@@ -119,26 +276,8 @@ class SimpleRAG:
         # Search for similar chunks
         results = store.similarity_search(query_embedding, top_k=top_k)
 
-        # Rerank results based on DOD document number similarity
-        if results and len(results) > 1:
-            top_doc_number = results[0].get("doc_number")
-            if top_doc_number and len(top_doc_number) >= 4:
-                top_prefix = top_doc_number[:4]  # First 4 digits (subgroup)
-                top_major_group = get_major_group(top_doc_number)
-
-                # Apply boost to results with matching numbers
-                for result in results[1:]:  # Skip the top result
-                    result_doc_number = result.get("doc_number")
-                    if result_doc_number:
-                        if result_doc_number.startswith(top_prefix):
-                            # Same subgroup (first 4 digits)
-                            result["similarity"] *= 1.3
-                        elif get_major_group(result_doc_number) == top_major_group:
-                            # Same major group (first digit * 1000)
-                            result["similarity"] *= 1.1
-
-                # Re-sort by updated similarity scores
-                results.sort(key=lambda x: x["similarity"], reverse=True)
+        # Apply enhanced document-aware ranking
+        results = self.ranker.rank_results(results)
 
         if return_metadata:
             return results
@@ -186,16 +325,33 @@ class SimpleRAG:
         if use_llm and self.llm.is_available():
             # Use LLM to generate comprehensive response
             keep_alive = -1 if keep_model_loaded else None
-            response = self.llm.generate_rag_response(
-                question,
-                context_chunks,
-                max_k,
-                False,
-                keep_alive,  # Always False for LLM, we handle context separately
-            )
             if return_context:
-                return response, context_results
-            return response
+                # Get both response and fitted chunks from LLM
+                response, fitted_chunks = self.llm.generate_rag_response(
+                    question,
+                    context_chunks,
+                    max_k,
+                    return_context=True,
+                    keep_alive=keep_alive,
+                )
+                # Convert fitted chunks back to metadata format for display
+                fitted_results = []
+                for chunk_text in fitted_chunks:
+                    # Find the corresponding metadata for each fitted chunk
+                    for result in context_results:
+                        if result["chunk_text"] == chunk_text:
+                            fitted_results.append(result)
+                            break
+                return response, fitted_results
+            else:
+                response = self.llm.generate_rag_response(
+                    question,
+                    context_chunks,
+                    max_k,
+                    return_context=False,
+                    keep_alive=keep_alive,
+                )
+                return response
 
         # Fallback to simple context display
         context_preview = context_chunks[0][:200] + "..." if context_chunks else ""

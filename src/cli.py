@@ -2,14 +2,270 @@
 
 import argparse
 import logging
+import multiprocessing
 import sys
-from typing import List
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import List
 
+from .documents import load_processed_documents
+from .embedding_models import print_model_comparison
 from .hardware import get_hardware_info
 from .rag import SimpleRAG
-from .embedding_models import print_model_comparison
-from .documents import save_processed_documents, load_processed_documents
+
+
+def _process_document_worker(pdf_path_str: str) -> dict:
+    """Worker function for parallel document processing."""
+    from .rag import SimpleRAG
+
+    # Create a fresh RAG instance for this worker process
+    rag = SimpleRAG()
+
+    try:
+        doc_data = rag.processor.process_document(pdf_path_str, quiet=True)
+        return doc_data
+    except Exception as e:
+        # Return error info instead of failing silently
+        return {"error": True, "filename": Path(pdf_path_str).name, "message": str(e)}
+
+
+def _process_documents_streaming_to_json(
+    doc_dirs: List[str], output_file: str, verbose: bool = False
+) -> None:
+    """Process documents in streaming fashion, writing to JSON immediately to minimize RAM usage."""
+    import json
+
+    total_processed = 0
+
+    # Open JSON file for streaming write
+    with open(output_file, "w") as f:
+        f.write("[\n")  # Start JSON array
+        first_doc = True
+
+        for i, doc_dir in enumerate(doc_dirs, 1):
+            pdf_files = list(Path(doc_dir).glob("*.pdf"))
+
+            if verbose:
+                print(f"\nProcessing directory {i}/{len(doc_dirs)}: {doc_dir}")
+                print(f"Found {len(pdf_files)} PDF files in {doc_dir}")
+
+            if pdf_files:
+                # Process in smaller batches to control memory
+                batch_size = max(
+                    1, min(8, len(pdf_files))
+                )  # Process 8 files at a time max
+                dir_processed = 0
+
+                for batch_start in range(0, len(pdf_files), batch_size):
+                    batch_files = pdf_files[batch_start : batch_start + batch_size]
+                    batch_num = batch_start // batch_size + 1
+                    total_batches = (len(pdf_files) - 1) // batch_size + 1
+
+                    if verbose:
+                        print(f"  Processing batch {batch_num}/{total_batches}")
+                    else:
+                        # Update progress line in place
+                        print(
+                            f"\rProcessing {doc_dir} ({i}/{len(doc_dirs)}, batch {batch_num}/{total_batches})...",
+                            end="",
+                            flush=True,
+                        )
+
+                    # Process this batch
+                    docs = _process_documents_parallel(
+                        batch_files,
+                        doc_dir,
+                        i,
+                        len(doc_dirs),
+                        verbose,
+                        batch_num,
+                        total_batches,
+                    )
+
+                    # Write each document to JSON immediately (remove raw_text to save space)
+                    for doc in docs:
+                        if not first_doc:
+                            f.write(",\n")
+                        # Remove raw_text and clean_text to save file size
+                        doc_copy = doc.copy()
+                        doc_copy.pop("raw_text", None)
+                        doc_copy.pop("clean_text", None)
+                        json.dump(doc_copy, f, indent=2)
+                        first_doc = False
+                        total_processed += 1
+                        dir_processed += 1
+
+                    # Flush to disk after each batch
+                    f.flush()
+
+                    # Clear memory
+                    del docs
+
+                # Print final status for this directory
+                if not verbose:
+                    print(
+                        f"\rProcessing {doc_dir} ({i}/{len(doc_dirs)}) done ({dir_processed} processed)"
+                    )
+                else:
+                    print(
+                        f"  Completed directory {i}/{len(doc_dirs)}: {dir_processed} documents processed"
+                    )
+
+        f.write("\n]")  # End JSON array
+
+    print(f"Processed {total_processed} documents to {output_file}")
+
+
+def _process_documents_streaming_to_vectorstore(
+    doc_dirs: List[str], rag, verbose: bool = False
+) -> None:
+    """Process documents in batches, adding to vector store immediately to minimize RAM usage."""
+    total_processed = 0
+    total_chunks = 0
+
+    # pylint: disable=protected-access
+    store = rag._ensure_vector_store()
+
+    for i, doc_dir in enumerate(doc_dirs, 1):
+        pdf_files = list(Path(doc_dir).glob("*.pdf"))
+
+        if verbose:
+            print(f"\nProcessing directory {i}/{len(doc_dirs)}: {doc_dir}")
+            print(f"Found {len(pdf_files)} PDF files in {doc_dir}")
+
+        if pdf_files:
+            # Process in smaller batches to control memory
+            batch_size = max(1, min(8, len(pdf_files)))  # Process 8 files at a time max
+
+            for batch_start in range(0, len(pdf_files), batch_size):
+                batch_files = pdf_files[batch_start : batch_start + batch_size]
+
+                if verbose:
+                    print(
+                        f"  Processing batch {batch_start // batch_size + 1}/{(len(pdf_files) - 1) // batch_size + 1}"
+                    )
+
+                # Process this batch
+                batch_num = batch_start // batch_size + 1
+                total_batches = (len(pdf_files) - 1) // batch_size + 1
+                docs = _process_documents_parallel(
+                    batch_files,
+                    doc_dir,
+                    i,
+                    len(doc_dirs),
+                    verbose,
+                    batch_num,
+                    total_batches,
+                )
+
+                if docs:
+                    # Generate embeddings for this batch only
+                    batch_chunks = sum(doc["chunk_count"] for doc in docs)
+                    if verbose:
+                        print(f"    Generating embeddings for {batch_chunks} chunks...")
+
+                    _, embeddings, metadata = rag.processor.create_embeddings_for_docs(
+                        docs
+                    )
+
+                    # Add this batch to vector store
+                    store.add_documents(docs, embeddings, metadata)
+
+                    total_processed += len(docs)
+                    total_chunks += batch_chunks
+
+                    if verbose:
+                        print(f"    Added {len(docs)} documents to vector store")
+
+                    # Clear memory
+                    del docs, embeddings, metadata
+
+    print(f"Processed {total_processed} documents with {total_chunks} total chunks")
+
+    # pylint: disable=protected-access
+    rag._documents_loaded = True
+
+
+def _process_documents_parallel(
+    pdf_files: List[Path],
+    doc_dir: str,
+    dir_idx: int,
+    total_dirs: int,
+    verbose: bool = False,
+    batch_num: int = 1,
+    total_batches: int = 1,
+) -> List[dict]:
+    """Process multiple documents in parallel with progress tracking."""
+    if not pdf_files:
+        return []
+
+    # Determine number of worker processes
+    # Use conservative worker count to avoid overwhelming the system
+    # Each PDF processing is CPU/memory intensive, so limit workers
+    max_workers = max(1, min(len(pdf_files), max(2, multiprocessing.cpu_count() // 4)))
+
+    if verbose:
+        print(
+            f"Processing {len(pdf_files)} files with {max_workers} parallel workers..."
+        )
+
+    docs = []
+    completed = 0
+    errors = 0
+
+    # Convert Path objects to strings for the worker function
+    pdf_path_strs = [str(pdf_path) for pdf_path in pdf_files]
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_path = {
+            executor.submit(_process_document_worker, pdf_path_str): pdf_path_str
+            for pdf_path_str in pdf_path_strs
+        }
+
+        # Process completed tasks as they finish
+        for future in as_completed(future_to_path):
+            pdf_path_str = future_to_path[future]
+            filename = Path(pdf_path_str).name
+
+            try:
+                result = future.result()
+                completed += 1
+
+                if result and not result.get("error", False):
+                    docs.append(result)
+                    if verbose:
+                        print(f"✓ Completed {filename} ({completed}/{len(pdf_files)})")
+                    else:
+                        # Show per-file progress within the batch
+                        print(
+                            f"\rProcessing {doc_dir} ({dir_idx}/{total_dirs}, batch {batch_num}/{total_batches}, {completed}/{len(pdf_files)} files)...",
+                            end="",
+                            flush=True,
+                        )
+                else:
+                    errors += 1
+                    if verbose:
+                        error_msg = (
+                            result.get("message", "Unknown error")
+                            if result
+                            else "Failed to process"
+                        )
+                        print(f"✗ Failed {filename}: {error_msg}")
+
+            except Exception as e:
+                errors += 1
+                completed += 1
+                if verbose:
+                    print(f"✗ Error processing {filename}: {e}")
+
+    if not verbose:
+        # Don't print completion message here - let the caller handle it
+        pass
+    elif verbose and errors > 0:
+        print(f"Completed with {errors} errors out of {len(pdf_files)} files")
+
+    return docs
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -225,7 +481,6 @@ def load_documents(
         print("=" * 50)
 
     rag = SimpleRAG(embedding_model=embedding_model)
-    all_docs = []
 
     # Set quiet mode for document processor if not verbose
     if rag.processor:
@@ -255,63 +510,17 @@ def load_documents(
         _print_stats_and_status(rag)
         return
 
-    # For multiple directories or save_intermediate, use document collection approach
-    for i, doc_dir in enumerate(doc_dirs, 1):
-        if verbose:
-            print(f"\nProcessing directory {i}/{len(doc_dirs)}: {doc_dir}")
-
-            # Get file count for this directory
-            pdf_files = list(Path(doc_dir).glob("*.pdf"))
-            print(f"Found {len(pdf_files)} PDF files in {doc_dir}")
-        else:
-            # Show progress through files in directory
-            pdf_files = list(Path(doc_dir).glob("*.pdf"))
-
-            # Process files with progress indicator
-            docs = []
-            for file_idx, pdf_path in enumerate(pdf_files, 1):
-                print(
-                    f"\rProcessing {doc_dir} ({i}/{len(doc_dirs)}, {file_idx}/{len(pdf_files)} files)...",
-                    end="",
-                    flush=True,
-                )
-                doc_data = rag.processor.process_document(str(pdf_path), quiet=True)
-                if doc_data:
-                    docs.append(doc_data)
-
-            if docs:
-                all_docs.extend(docs)
-
-            print(" done")  # Complete the progress line
-
-        if verbose:
-            docs = rag.processor.process_directory(
-                doc_dir, show_dir_info=False, verbose=verbose
-            )
-            if docs:
-                all_docs.extend(docs)
-
-    if all_docs:
-        # Save intermediate file if requested
-        if save_intermediate:
-            save_processed_documents(all_docs, save_intermediate)
-            print(
-                f"Intermediate file saved. Use --load-intermediate {save_intermediate} to generate embeddings later."
-            )
-            return
-
-        total_chunks = sum(doc["chunk_count"] for doc in all_docs)
-        print(f"\nGenerating embeddings for all {total_chunks} chunks...")
-        _, embeddings, metadata = rag.processor.create_embeddings_for_docs(all_docs)
-
-        # Add all documents to vector store at once
-        # pylint: disable=protected-access
-        store = rag._ensure_vector_store()
-        store.add_documents(all_docs, embeddings, metadata)
-        print("Added all documents to vector database")
-
-        # pylint: disable=protected-access
-        rag._documents_loaded = True
+    # For multiple directories or save_intermediate, use streaming approach to minimize RAM usage
+    if save_intermediate:
+        # For intermediate save, use streaming JSON writing
+        _process_documents_streaming_to_json(doc_dirs, save_intermediate, verbose)
+        print(
+            f"Intermediate file saved. Use --load-intermediate {save_intermediate} to generate embeddings later."
+        )
+        return
+    else:
+        # For direct embedding generation, use batched processing to control memory usage
+        _process_documents_streaming_to_vectorstore(doc_dirs, rag, verbose)
 
     _print_stats_and_status(rag)
 
@@ -428,7 +637,9 @@ def process_query(
         )
         if isinstance(result, tuple):
             response, context_results = result
-            print(f"\nRetrieved Context Chunks ({len(context_results)} chunks found):")
+            print(
+                f"\nContext Chunks Used in Prompt ({len(context_results)} chunks fitted):"
+            )
             print("-" * 60)
             for i, chunk_result in enumerate(context_results, 1):
                 filename = chunk_result.get("filename", "Unknown")

@@ -13,12 +13,12 @@ run:
 	python -m src.cli
 
 format:
-	black .
 	ruff check --fix .
+	ruff format .
 
 lint:
-	black --check .
 	ruff check .
+	ruff format --check .
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

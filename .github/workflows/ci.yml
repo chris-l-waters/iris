@@ -28,13 +28,10 @@ jobs:
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
 
-    - name: Lint with ruff
+    - name: Lint and format with ruff
       run: |
         ruff check src/ tests/ gui/
-
-    - name: Format check with black
-      run: |
-        black --check src/ tests/ gui/
+        ruff format --check src/ tests/ gui/
 
     - name: Test with pytest
       run: |

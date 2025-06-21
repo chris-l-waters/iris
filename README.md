@@ -325,7 +325,7 @@ Makefile                  # Build and setup automation
 - Most of the reason this runs slowly is due to the pdfplumber table detection. Luckily, it only needs to be done once.
 
 #### DOD Document Intelligence Features
-- **Number Extraction**: Robust extraction of DOD directive numbers (DODD/DODI/DODM) from filenames and content
+- **Number Extraction**: Robust extraction †of DOD directive numbers (DODD/DODI/DODM) from filenames and content
 - **Context-Aware Ranking**: Related policies automatically cluster together in search results
 - **Hierarchical Understanding**: System recognizes DOD's logical document organization (major groups, subgroups)
 - **Smart Boosting**: Documents in the same series receive similarity boosts, plus adjacent chunks within the same document receive multiplicative proximity boosts
@@ -337,11 +337,11 @@ Makefile                  # Build and setup automation
 | System Configuration | Document Extraction | all-MiniLM-L6-v2 | all-mpnet-base-v2 | BAAI/bge-base-en-v1.5 | Vector DB Size |
 |----------------------|--------------------|--------------------|-------------------|----------------------|----------------|
 | **M4 MacBook Pro**<br>10 core CPU/GPU, 16GB RAM | 11m 54s | 52s | 6m 2s | 6m 58s | 742mb |
-| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | XXX | XXX | XXX | XXX | XXX |
-| **AMD 5600X + GTX 1080**<br>32GB RAM, 8GB VRAM, Pop!_OS 22.04 | XXX | XXX | XXX | XXX | XXX |
+| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | 5m 14s | 1m 33s | 17m 27s | 17m 16s | 1.8GB |
+| **AMD 5600X + GTX 1080**<br>32GB RAM, 8GB VRAM, Pop!_OS 22.04 | 9m 57s | 37.5s | 4m 32s | 5m 17s | 1.6GB |
 
 #### Query Response Performance Benchmarks
-##### Test Query: *"What are the requirements for security clearances?"*
+##### Test Query: *"What ACAT levels delegate decision authority to the service components?"*
 
 | M4, 10 core CPU/GPU | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
@@ -349,17 +349,17 @@ Makefile                  # Build and setup automation
 | **all-mpnet-base-v2** | 9.4s† | 9.4s | 10.5s | 58s†* | 38.4s |
 | **BAAI/bge-base-en-v1.5** | 9.5s | 7.9s† | 17.1s† | 62s | 33.8s† |
 
-| 9800X3D | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
+| 9800X3D/6950XT | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | XXX | XXX | XXX | XXX | XXX |
-| **all-mpnet-base-v2** | XXX | XXX | XXX*† | XXX | XXX |
-| **BAAI/bge-base-en-v1.5** | XXX | XXX | XXX | XXX | XXX |
+| **all-MiniLM-L6-v2** | 2.4s | 2.8s† | 4.1s | 16.3s | 13.4s |
+| **all-mpnet-base-v2** | 4.1s† | 3.4s | 2.3s† | 21.4s† | 12.3s†* |
+| **BAAI/bge-base-en-v1.5** | 3.9s | 3.8s | 6.0s | 23.9s | 9.9s |
 
 | 5600X/GTX 1080  | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | XXX | XXX | XXX* | XXX | XXX |
-| **all-mpnet-base-v2** | XXX | XXX | XXX | XXX | XXX |
-| **BAAI/bge-base-en-v1.5** | XXX | XXX | XXX† | XXX | XXX |
+| **all-MiniLM-L6-v2** | 5.6s | 5.3s | 5.4s | 26.4s | 24.4s |
+| **all-mpnet-base-v2** | 3.6s† | 5.5s | 4.8s | 35.4s† | 19.2s†* |
+| **BAAI/bge-base-en-v1.5** | 2.7s | 8.2s† | 8.4s† | 53.7s | 29.1s |
 
 † - best per model * best overall
 

@@ -39,3 +39,60 @@ llm:
   fallback_max_tokens: 256              # Default max tokens when model config not found
   fallback_temperature: 0.7             # Default temperature when model config not found
   fallback_top_p: 0.95                  # Default top_p when model config not found
+
+# LLM Prompt Templates
+prompts:
+  simple:
+    template: |
+      Context from DOD policies:
+      {context}
+      
+      Question: {question}
+      
+      Instructions: Answer based ONLY on the context above. If the context doesn't contain enough information to answer the question, say "The provided policies do not contain sufficient information to answer this question."
+      
+      Answer:
+  
+  instruct:
+    template: |
+      ### System:
+      You are an expert assistant for Department of Defense policy questions. You must answer based ONLY on the provided context. Do not use any external knowledge or make assumptions beyond what is explicitly stated in the context.
+      
+      ### Context:
+      {context}
+      
+      ### Question: {question}
+      
+      ### Instructions:
+      - Answer using ONLY information found in the context above
+      - If the context doesn't contain enough information, respond with "The provided policies do not contain sufficient information to answer this question"
+      - Quote relevant parts of the policies when possible
+      - Do not add information not present in the context
+      
+      ### Answer:
+  
+  mistral:
+    template: |
+      [INST] You are a helpful assistant that answers questions about Department of Defense policies based ONLY on provided excerpts.
+      
+      IMPORTANT RULES:
+      - Use ONLY the information provided in the context below
+      - Do not use external knowledge or make assumptions
+      - If the context doesn't contain enough information, say "The provided policies do not contain sufficient information to answer this question"
+      - Quote specific policy sections when relevant
+      
+      Context from DOD policies:
+      {context}
+      
+      Question: {question} [/INST]
+  
+  fallback:
+    template: |
+      Context from DOD policies:
+      {context}
+      
+      Question: {question}
+      
+      Instructions: Answer based ONLY on the context above. If the context doesn't contain enough information, say "The provided policies do not contain sufficient information to answer this question."
+      
+      Answer:

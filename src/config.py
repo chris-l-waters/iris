@@ -94,6 +94,15 @@ class Config:
         """Get fallback top_p for LLM responses."""
         return self.get("llm.fallback_top_p", 0.95)
 
+    def get_prompt_template(self, style: str) -> str:
+        """Get prompt template for given style."""
+        return self.get(f"prompts.{style}.template", "")
+
+    @property
+    def available_prompt_styles(self):
+        """Get list of available prompt styles."""
+        return list(self.get("prompts", {}).keys())
+
 
 # Create global config instance
 config = Config()

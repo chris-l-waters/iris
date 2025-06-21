@@ -9,13 +9,46 @@
 <body>
     <div class="container">
         <header>
-            <h1>👁️ IRIS</h1>
-            <p>Issuances Retrieval and Intelligence Search</p>
+            <h3>IRIS - Issuances Retrieval and Intelligent Search</h3>
         </header>
+
+        <div class="query-section">
+            <h3>Query DOD Policies</h3>
+            <form id="query-form">
+                <div class="input-group">
+                    <textarea 
+                        id="question" 
+                        name="question" 
+                        placeholder="Ask a question about DOD policies... (e.g., 'What are the requirements for security clearances?')"
+                        rows="3"
+                        required
+                    ></textarea>
+                    <button type="submit" class="btn btn-primary" {{ 'disabled' if not system_ready else '' }}>
+                        Submit Query
+                    </button>
+                </div>
+            </form>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <span>Processing your query...</span>
+            </div>
+
+            <div id="response-section" class="response-section hidden">
+                <h3>Response</h3>
+                <div id="response-content" class="response-content"></div>
+                <div id="processing-details" class="processing-details"></div>
+            </div>
+
+            <div id="error-section" class="error-section hidden">
+                <h3>Error</h3>
+                <div id="error-content" class="error-content"></div>
+            </div>
+        </div>
 
         <div class="control-panel">
             <div class="model-selection">
-                <h2>Model Configuration</h2>
+                <h3>Model Configuration</h3>
                 <div class="model-controls">
                     <div class="control-group">
                         <label for="embedding-model">Embedding Model:</label>
@@ -44,7 +77,7 @@
             </div>
 
             <div class="system-status">
-                <h2>System Status</h2>
+                <h3>System Status</h3>
                 <div class="status-compact">
                     <div class="status-row">
                         <span class="label">Hardware:</span>
@@ -109,48 +142,6 @@
         </div>
         {% endif %}
 
-        <div class="query-section">
-            <h2>Query DOD Policies</h2>
-            <form id="query-form">
-                <div class="input-group">
-                    <textarea 
-                        id="question" 
-                        name="question" 
-                        placeholder="Ask a question about DOD policies... (e.g., 'What is the policy on military leave?')"
-                        rows="3"
-                        required
-                    ></textarea>
-                    <button type="submit" class="btn btn-primary" {{ 'disabled' if not system_ready else '' }}>
-                        Submit Query
-                    </button>
-                </div>
-            </form>
-
-            <div id="loading" class="loading hidden">
-                <div class="spinner"></div>
-                <span>Processing your query...</span>
-            </div>
-
-            <div id="response-section" class="response-section hidden">
-                <h3>Response</h3>
-                <div id="response-content" class="response-content"></div>
-            </div>
-
-            <div id="error-section" class="error-section hidden">
-                <h3>Error</h3>
-                <div id="error-content" class="error-content"></div>
-            </div>
-        </div>
-
-        <div class="help-section">
-            <h2>Example Queries</h2>
-            <ul class="example-queries">
-                <li><button class="example-btn">What is the policy on military leave?</button></li>
-                <li><button class="example-btn">How do I request a security clearance?</button></li>
-                <li><button class="example-btn">What are the requirements for promotion?</button></li>
-                <li><button class="example-btn">What is the dress code policy?</button></li>
-            </ul>
-        </div>
 
         <div class="shutdown-section">
             <button id="shutdown-btn" class="btn btn-danger">Shutdown Everything</button>
@@ -600,12 +591,6 @@
             }
         }
 
-        // Example queries
-        document.querySelectorAll('.example-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.getElementById('question').value = this.textContent;
-            });
-        });
 
         // Utility functions
         function showLoading() {
@@ -617,7 +602,22 @@
         }
 
         function showResponse(response) {
-            document.getElementById('response-content').textContent = response;
+            // Split the response at "Response:" to separate processing details from actual answer
+            const responseParts = response.split('\nResponse:\n');
+            
+            if (responseParts.length >= 2) {
+                // We found the split - first part is processing details, second part is actual response
+                const processingDetails = responseParts[0];
+                const actualResponse = responseParts.slice(1).join('\nResponse:\n'); // In case there are multiple "Response:" strings
+                
+                document.getElementById('response-content').textContent = actualResponse.trim();
+                document.getElementById('processing-details').textContent = processingDetails.trim();
+            } else {
+                // Fallback - show full response if we can't parse it
+                document.getElementById('response-content').textContent = response;
+                document.getElementById('processing-details').textContent = '';
+            }
+            
             document.getElementById('response-section').classList.remove('hidden');
         }
 

@@ -171,48 +171,32 @@ class LLMProcessor:
         """Create a structured prompt for RAG responses."""
         # Context chunks are already filtered by fit_chunks_to_context()
         context = "\n\n".join(context_chunks)
-
         prompt_style = self.model_config["prompt_style"]
 
-        if prompt_style == "simple":
-            # TinyLlama format
-            prompt = f"""Context: {context}
+        # Get template from config
+        template = config.get_prompt_template(prompt_style)
+        if not template:
+            # Fallback to default template if style not found
+            self.logger.warning(
+                "Prompt style '%s' not found in config, using fallback", prompt_style
+            )
+            template = config.get_prompt_template("fallback")
+
+        if not template:
+            # Ultimate fallback if config is missing
+            self.logger.error(
+                "No prompt templates found in config, using hardcoded fallback"
+            )
+            template = """Context from DOD policies:
+{context}
 
 Question: {question}
 
-Answer:"""
-
-        elif prompt_style == "instruct":
-            # Llama-3.2 format
-            prompt = f"""### System:
-You are an expert assistant for Department of Defense policy questions. Use the provided context to give accurate, detailed answers.
-
-### Context:
-{context}
-
-### Question: {question}
-
-### Answer:"""
-
-        elif prompt_style == "mistral":
-            # Mistral format (without <s> to avoid duplication)
-            prompt = f"""[INST] You are a helpful assistant that answers questions about Department of Defense policies based on provided excerpts.
-Answer concisely and accurately.
-
-Context from DOD policies:
-{context}
-
-Question: {question} [/INST]"""
-
-        else:
-            # Fallback format
-            prompt = f"""Context: {context}
-
-Question: {question}
+Instructions: Answer based ONLY on the context above. If the context doesn't contain enough information, say "The provided policies do not contain sufficient information to answer this question."
 
 Answer:"""
 
-        return prompt
+        return template.format(context=context, question=question)
 
     def count_tokens(self, text: str) -> int:
         """Count tokens using estimation (Ollama doesn't expose tokenizer)."""

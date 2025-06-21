@@ -1,4 +1,4 @@
-"""IRIS - Issuances Retrieval and Intelligence Search.
+"""IRIS - Issuances Retrieval and Intelligent Search.
 
 A portfolio project for edge AI deployment.
 """

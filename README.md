@@ -1,4 +1,4 @@
-# 👁️ IRIS - Issuances Retrieval and Intelligence Search
+# 👁️ IRIS - Issuances Retrieval and Intelligent Search
 
 A portfolio project demonstrating edge AI deployment for querying DOD Directives using RAG (Retrieval Augmented Generation). Features a modern web interface with folder selection, real-time processing output, and adaptive hardware detection.
 
@@ -173,6 +173,59 @@ python3 -m src.cli --query "your question" --model-name any-ollama-model
 
 **Note**: The CLI supports any model available in Ollama. The GUI focuses on the recommended models for optimal user experience, but CLI users can specify any model name that Ollama supports.
 
+## Configuration and Customization
+
+### Prompt Templates
+
+IRIS uses configurable prompt templates stored in `config.yml` for maximum flexibility. You can customize how the system instructs LLMs to respond to queries by editing the prompt templates:
+
+```yaml
+# config.yml
+prompts:
+  simple:      # For TinyLlama models
+    template: |
+      Context from DOD policies:
+      {context}
+      
+      Question: {question}
+      
+      Instructions: Answer based ONLY on the context above...
+  
+  instruct:    # For Llama 3.2 models  
+    template: |
+      ### System:
+      You are an expert assistant for Department of Defense policy questions...
+  
+  mistral:     # For Mistral models
+    template: |
+      [INST] You are a helpful assistant that answers questions...
+```
+
+**Key benefits:**
+- **Easy experimentation**: Test different prompt strategies without code changes
+- **Model-specific optimization**: Different templates for different model families
+- **Version control**: Prompt changes are tracked in git
+- **Quick iteration**: Modify prompts and test immediately
+
+### System Configuration
+
+The `config.yml` file controls all major system parameters:
+
+```yaml
+# Model behavior
+llm:
+  default_context_window: 4096    # Context length for all models
+  fallback_temperature: 0.7       # Response randomness
+
+# Document processing
+document_processing:
+  default_chunk_size: 500         # Words per document chunk
+  default_chunk_overlap: 50       # Overlap between chunks
+
+# Hardware detection
+# (automatically configured based on system capabilities)
+```
+
 ### Intermediate File Workflow (Advanced)
 
 For development and testing, you can split document processing into two phases:
@@ -203,10 +256,10 @@ src/
 ├── documents.py          # PDF processing, text extraction, and embedding generation
 ├── vectorstore.py        # ChromaDB vector database with similarity search
 ├── rag.py                # Complete RAG pipeline with document retrieval
-├── llm.py                # LLM integration using Ollama
+├── llm.py                # LLM integration using Ollama with configurable prompts
 ├── hardware.py           # Hardware detection and model recommendation
 ├── embedding_models.py   # Embedding model utilities
-├── config.py             # Configuration management (YAML-based)
+├── config.py             # Configuration management (YAML-based) with prompt templates
 ├── cli.py                # Command-line interface
 ├── error_utils.py        # Error handling utilities
 ├── logging_utils.py      # Logging configuration
@@ -241,7 +294,7 @@ debug/                    # Development debugging tools
 ├── pipeline_trace.py     # Processing pipeline analysis
 └── ...                   # Various debugging utilities
 
-config.yml                # YAML configuration file
+config.yml                # YAML configuration file with model settings and prompt templates
 start_gui.py              # GUI launcher script
 Makefile                  # Build and setup automation
 ```

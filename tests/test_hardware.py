@@ -25,10 +25,19 @@ def test_detect_gpu():
 def test_recommend_model():
     """Test model recommendation logic."""
     # Test with specific RAM values - RAM-based recommendations
-    assert recommend_model(2) == "llama3.2:1b-instruct-q4_K_M"  # Low RAM
-    assert recommend_model(4) == "llama3.2:3b-instruct-q4_K_M"  # Medium RAM
-    assert recommend_model(8) == "mistral:7b-instruct-q4_K_M"  # High RAM
-    assert recommend_model(16) == "mistral:7b-instruct-q4_K_M"  # Very high RAM
+    assert (
+        recommend_model(2) == "tinyllama:1.1b-chat-v1-q4_K_M"
+    )  # Tier 0: Minimum spec (2-4GB)
+    assert (
+        recommend_model(4) == "llama3.2:1b-instruct-q4_K_M"
+    )  # Tier 1: Low spec (4-6GB)
+    assert (
+        recommend_model(6) == "llama3.2:3b-instruct-q4_K_M"
+    )  # Tier 2: Standard spec (6-8GB)
+    assert (
+        recommend_model(8) == "gemma2:9b-instruct-q4_K_M"
+    )  # Tier 3: High spec (8-12GB)
+    assert recommend_model(16) == "phi4-mini:latest"  # Tier 4: Premium spec (12GB+)
 
     # Test with no RAM specified (should use system RAM)
     model = recommend_model()

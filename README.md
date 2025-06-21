@@ -4,7 +4,7 @@ A portfolio project demonstrating edge AI deployment for querying DOD Directives
 
 ## Features
 
-- **DOD Document Intelligence**: Context-aware retrieval that understands DOD numbering conventions (DODD/DODI/DODM) and clusters related policies
+- **DOD Document Intelligence**: Context-aware retrieval with hierarchical boosting for document relationships AND adjacent chunk proximity within same documents
 - **Semantic Search**: Vector similarity search using SentenceTransformers embeddings with contextual responses
 - **Adaptive Hardware Detection**: Automatically detects system capabilities and recommends optimal configurations
 - **Web Interface**: Intuitive GUI with folder selection, live terminal output, and real-time status monitoring
@@ -90,9 +90,11 @@ python3 gui/app.py
 ### Hardware Recommendations
 
 #### LLM Models (Text Generation with Ollama - Quantized Q4)
-- **2-4GB RAM**: Llama 3.2 1B Instruct Q4 (basic LLM functionality)
-- **4-6GB RAM**: Llama 3.2 3B Instruct Q4 models (standard LLM performance)
-- **8-12GB RAM**: Mistral 7B Q4 models (high-quality LLM performance)
+- **2-4GB RAM**: TinyLlama 1.1B Chat Q4 (minimum spec functionality)
+- **4-6GB RAM**: Llama 3.2 1B Instruct Q4 (basic LLM functionality)  
+- **6-8GB RAM**: Llama 3.2 3B Instruct Q4 (standard LLM performance)
+- **8-12GB RAM**: Gemma2 9B Instruct Q4 (high-quality performance)
+- **12GB+ RAM**: Phi4 Mini (premium performance)
 - **GPU**: Automatic GPU acceleration when available (Ollama)
 
 #### Embedding Models (Semantic Search)
@@ -129,9 +131,11 @@ GPU acceleration will be used if available; querying delays may be frustrating o
 
 | Model | Parameters | RAM Usage | Speed | Quality | Best For |
 |-------|------------|-----------|-------|---------|----------|
-| Llama 3.2 1B Instruct Q4 | 1B | 2-4GB | Very Fast | OK | Low-end systems |
-| Llama 3.2 3B Instruct Q4 | 3.2B | 4-6GB | Fast | Good | Standard systems |
-| Mistral 7B Q4 | 7B | 8-12GB | Medium | Very Good | High-end systems |
+| TinyLlama 1.1B Chat Q4 | 1.1B | 2-4GB | Fastest | Basic | Minimum systems |
+| Llama 3.2 1B Instruct Q4 | 1B | 4-6GB | Very Fast | OK | Low-end systems |
+| Llama 3.2 3B Instruct Q4 | 3.2B | 6-8GB | Fast | Good | Standard systems |
+| Gemma2 9B Instruct Q4 | 9B | 8-12GB | Medium | Very Good | High-end systems |
+| Phi4 Mini | 14B | 12GB+ | Slower | Excellent | Premium systems |
 
 #### Embedding Model Performance
 
@@ -221,6 +225,13 @@ llm:
 document_processing:
   default_chunk_size: 500         # Words per document chunk
   default_chunk_overlap: 50       # Overlap between chunks
+
+# Document-aware ranking with adjacency boosting
+ranking:
+  same_document_boost: 1.5          # Same filename
+  adjacent_chunk_boost: 1.3         # Adjacent chunks (±1)
+  near_chunk_boost: 1.15            # Near chunks (±2)
+  nearby_chunk_boost: 1.05          # Nearby chunks (±3-5)
 
 # Hardware detection
 # (automatically configured based on system capabilities)
@@ -317,39 +328,40 @@ Makefile                  # Build and setup automation
 - **Number Extraction**: Robust extraction of DOD directive numbers (DODD/DODI/DODM) from filenames and content
 - **Context-Aware Ranking**: Related policies automatically cluster together in search results
 - **Hierarchical Understanding**: System recognizes DOD's logical document organization (major groups, subgroups)
-- **Smart Boosting**: Documents in the same series receive similarity boosts (1.3x for subgroups, 1.1x for major groups)
+- **Smart Boosting**: Documents in the same series receive similarity boosts, plus adjacent chunks within the same document receive multiplicative proximity boosts
+- **Adjacency Boosting**: Sequential chunks (before/after relevant content) are boosted to provide better context and narrative flow
 
 ## Performance Benchmarks
 #### Document Extraction + Embeddings
 
 | System Configuration | Document Extraction | all-MiniLM-L6-v2 | all-mpnet-base-v2 | BAAI/bge-base-en-v1.5 | Vector DB Size |
 |----------------------|--------------------|--------------------|-------------------|----------------------|----------------|
-| **M4 MacBook Pro**<br>10 core CPU/GPU, 16GB RAM | 4m 13s | 74s | 8m 51s | 10m 30s | 965.3 MB |
-| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | 5m 15s | 2m 8s | 27m 52s | 26m 40s | 992.5 MB |
-| **AMD 5600X + GTX 1080**<br>32GB RAM, 8GB VRAM, Pop!_OS 22.04 | 11m 33s | 51s | 6m 54s | 7m 52s | 921 MB |
+| **M4 MacBook Pro**<br>10 core CPU/GPU, 16GB RAM | 11m 54s | 52s | 6m 2s | 6m 58s | 742mb |
+| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | XXX | XXX | XXX | XXX | XXX |
+| **AMD 5600X + GTX 1080**<br>32GB RAM, 8GB VRAM, Pop!_OS 22.04 | XXX | XXX | XXX | XXX | XXX |
 
 #### Query Response Performance Benchmarks
 ##### Test Query: *"What are the requirements for security clearances?"*
 
-| M4, 10 core CPU/GPU | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
-|----------------|------------|------------------------------|----------------------------|
-| **all-MiniLM-L6-v2** | 13s | 29.5s | 54.3s |
-| **all-mpnet-base-v2** | 13s | 21.6s* | 32.75s |
-| **BAAI/bge-base-en-v1.5** | 13s | 30.8s | 32.4s† |
+| M4, 10 core CPU/GPU | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
+|----------------|------------|------------|------------------------------|----------------------------|------------------|
+| **all-MiniLM-L6-v2** | 6.4s | 9.4s | 6.5s | 53s | 35s |
+| **all-mpnet-base-v2** | 9.4s† | 9.4s | 10.5s | 58s†* | 38.4s |
+| **BAAI/bge-base-en-v1.5** | 9.5s | 7.9s† | 17.1s† | 62s | 33.8s† |
 
-| 9800X3D | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
-|----------------|------------|------------------------------|----------------------------|
-| **all-MiniLM-L6-v2** | 17s | 39s | 1m 37s |
-| **all-mpnet-base-v2** | 15.8s | 27.3s*† | 48.8s |
-| **BAAI/bge-base-en-v1.5** | 17.8s | 44.8s | 53.8s |
+| 9800X3D | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
+|----------------|------------|------------|------------------------------|----------------------------|------------------|
+| **all-MiniLM-L6-v2** | XXX | XXX | XXX | XXX | XXX |
+| **all-mpnet-base-v2** | XXX | XXX | XXX*† | XXX | XXX |
+| **BAAI/bge-base-en-v1.5** | XXX | XXX | XXX | XXX | XXX |
 
-| 5600X/GTX 1080  | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | mistral:7b-instruct-q4_K_M |
-|----------------|------------|------------------------------|----------------------------|
-| **all-MiniLM-L6-v2** | 11.8s | 19.4s | 25.4s* |
-| **all-mpnet-base-v2** | 11.9s | 15s | 21.3s |
-| **BAAI/bge-base-en-v1.5** | 12.8s | 16.9s | 25.8s† |
+| 5600X/GTX 1080  | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
+|----------------|------------|------------|------------------------------|----------------------------|------------------|
+| **all-MiniLM-L6-v2** | XXX | XXX | XXX* | XXX | XXX |
+| **all-mpnet-base-v2** | XXX | XXX | XXX | XXX | XXX |
+| **BAAI/bge-base-en-v1.5** | XXX | XXX | XXX† | XXX | XXX |
 
-\* most detailed; † best answer
+† - best per model * best overall
 
 Windows 10 was tested for installation and verification, not benchmarking; I only have Windows VM's available and don't run it on bare metal.
 

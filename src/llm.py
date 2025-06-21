@@ -6,28 +6,7 @@ from typing import Optional, List
 from .hardware import get_hardware_info
 from .config import config
 
-# Model-specific configurations for Ollama
-# Note: n_ctx now comes from config.yml for consistency
-MODEL_CONFIGS = {
-    "llama3.2:1b-instruct-q4_K_M": {
-        "max_tokens": 400,
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "prompt_style": "instruct",
-    },
-    "llama3.2:3b-instruct-q4_K_M": {
-        "max_tokens": 512,
-        "temperature": 0.5,
-        "top_p": 0.95,
-        "prompt_style": "instruct",
-    },
-    "mistral:7b-instruct-q4_K_M": {
-        "max_tokens": 1024,
-        "temperature": 0.6,
-        "top_p": 0.9,
-        "prompt_style": "mistral",
-    },
-}
+# Model configurations are now loaded from config.yml
 
 
 class LLMProcessor:
@@ -46,20 +25,15 @@ class LLMProcessor:
 
     def _get_model_config(self) -> dict:
         """Get configuration for the current model."""
-        # Get base config from MODEL_CONFIGS or fallback
-        base_config = MODEL_CONFIGS.get(
-            self.model_name,
-            {
-                "max_tokens": config.llm_fallback_max_tokens,
-                "temperature": config.llm_fallback_temperature,
-                "top_p": config.llm_fallback_top_p,
-                "prompt_style": "simple",
-            },
+        # Get model config from config.yml
+        model_config = config.get_model_config(self.model_name)
+
+        # Ensure n_ctx is set (use model-specific context_window or default)
+        model_config["n_ctx"] = model_config.get(
+            "context_window", config.llm_default_context_window
         )
 
-        # Add n_ctx from config.yml (consistent across all models)
-        base_config["n_ctx"] = config.llm_default_context_window
-        return base_config
+        return model_config
 
     def _ensure_ollama(self) -> bool:
         """Ensure Ollama is available and model is pulled."""

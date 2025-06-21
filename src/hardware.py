@@ -2,6 +2,7 @@
 
 from typing import Dict, Optional, Union
 import psutil
+from .config import config
 
 
 def get_ram_gb() -> float:
@@ -20,16 +21,31 @@ def detect_gpu() -> bool:
 
 
 def recommend_model(ram_gb: Optional[float] = None) -> str:
-    """Recommend Ollama model based on hardware capabilities."""
+    """Recommend Ollama model based on hardware capabilities and config tiers."""
     if ram_gb is None:
         ram_gb = get_ram_gb()
 
-    # Standard recommendations (based on quantized model requirements)
-    if ram_gb >= 8:  # Systems with 8GB+ can handle Mistral 7B Q4
-        return "mistral:7b-instruct-q4_K_M"
-    if ram_gb >= 4:  # Systems with 4GB+ can handle Llama 3.2 3B Q4
-        return "llama3.2:3b-instruct-q4_K_M"
-    return "llama3.2:1b-instruct-q4_K_M"  # Minimum spec systems use Llama 3.2 1B Q4
+    # RAM-based tier selection (matching config.yml model requirements)
+    if ram_gb >= 12:  # Tier 4: Premium spec (12GB+ RAM)
+        tier = 4
+    elif ram_gb >= 8:  # Tier 3: High spec (8-12GB RAM)
+        tier = 3
+    elif ram_gb >= 6:  # Tier 2: Standard spec (6-8GB RAM)
+        tier = 2
+    elif ram_gb >= 4:  # Tier 1: Low spec (4-6GB RAM)
+        tier = 1
+    else:  # Tier 0: Minimum spec (2-4GB RAM)
+        tier = 0
+
+    # Get models for the determined tier, fallback to lower tiers if needed
+    for fallback_tier in range(tier, -1, -1):
+        tier_models = config.get_models_by_tier(fallback_tier)
+        if tier_models:
+            # Return the first (and typically only) model for this tier
+            return list(tier_models.keys())[0]
+
+    # Final fallback if no models found (shouldn't happen with proper config)
+    return "llama3.2:1b-instruct-q4_K_M"
 
 
 def recommend_embedding_model(ram_gb: Optional[float] = None) -> str:

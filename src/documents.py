@@ -1468,6 +1468,7 @@ class DocumentProcessor:
         embedding_model: str = "all-MiniLM-L6-v2",
         enable_header_footer_removal: bool = True,
         max_workers: int = None,
+        document_store: "DocumentStore" = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.quiet_mode = False
@@ -1476,7 +1477,7 @@ class DocumentProcessor:
         self.pdf_extractor = PDFExtractor(self.logger, self.quiet_mode)
         self.chunker = UnifiedChunker(self.logger)
         self.embedding_manager = EmbeddingManager(
-            embedding_model, self.logger, self.quiet_mode
+            embedding_model, self.logger, self.quiet_mode, document_store
         )
 
         # For compatibility
@@ -1683,11 +1684,18 @@ class DocumentProcessor:
 class EmbeddingManager:
     """Embedding manager for compatibility."""
 
-    def __init__(self, model_name="all-MiniLM-L6-v2", logger=None, quiet_mode=False):
+    def __init__(
+        self,
+        model_name="all-MiniLM-L6-v2",
+        logger=None,
+        quiet_mode=False,
+        document_store=None,
+    ):
         self.model_name = model_name
         self.model = None
         self.logger = logger or logging.getLogger(__name__)
         self.quiet_mode = quiet_mode
+        self.document_store = document_store
 
     def _load_embedding_model(self):
         """Lazy load embedding model."""
@@ -1721,7 +1729,53 @@ class EmbeddingManager:
     def create_embeddings_for_docs(
         self, documents: List[Dict]
     ) -> Tuple[List[str], np.ndarray, List[Dict]]:
-        """Create embeddings for all document chunks."""
+        """Create embeddings for all document chunks.
+
+        Behavior:
+        - If DocumentStore has existing chunks: ignore documents param, use existing chunks
+        - If DocumentStore is empty: process documents param and store in DocumentStore
+
+        Returns:
+            Tuple of (chunk_ids, embeddings, minimal_metadata)
+        """
+        if self.document_store is None:
+            raise ValueError("DocumentStore is required for EmbeddingManager")
+
+        existing_chunks = self.document_store.get_all_chunks()
+
+        if existing_chunks:
+            # DocumentStore has existing chunks - use them (additional embeddings flow)
+            if not self.quiet_mode:
+                self.logger.info(
+                    f"Using {len(existing_chunks)} existing chunks from DocumentStore"
+                )
+
+            # Extract text for embedding generation
+            all_chunks = [chunk["chunk_text"] for chunk in existing_chunks]
+            chunk_ids = [chunk["chunk_id"] for chunk in existing_chunks]
+
+            # Create minimal metadata for vector store
+            minimal_metadata = []
+            for chunk in existing_chunks:
+                minimal_metadata.append(
+                    {
+                        "chunk_id": chunk["chunk_id"],
+                        "filename": chunk["filename"],
+                        "chunk_index": chunk["chunk_index"],
+                        "doc_number": chunk["doc_number"] or "",
+                    }
+                )
+
+            # Generate embeddings
+            if not self.quiet_mode:
+                self.logger.info(
+                    f"Generating embeddings for {len(all_chunks)} existing chunks..."
+                )
+            embeddings = self.generate_embeddings(all_chunks)
+
+            return chunk_ids, embeddings, minimal_metadata
+
+        # DocumentStore is empty - process documents (new database flow)
         all_chunks = []
         chunk_metadata = []
 
@@ -1740,11 +1794,302 @@ class EmbeddingManager:
 
         if not self.quiet_mode:
             self.logger.info(
-                f"Generating embeddings for {len(all_chunks)} total chunks..."
+                f"Generating embeddings for {len(all_chunks)} new chunks..."
             )
 
         embeddings = self.generate_embeddings(all_chunks)
-        return all_chunks, embeddings, chunk_metadata
+
+        # Store in DocumentStore
+        chunk_id_map = self.document_store.add_documents(documents, chunk_metadata)
+
+        # Convert chunk_metadata to chunk_ids for return
+        chunk_ids = []
+        minimal_metadata = []
+        for metadata in chunk_metadata:
+            chunk_id = chunk_id_map[id(metadata)]
+            chunk_ids.append(chunk_id)
+            minimal_metadata.append(
+                {
+                    "chunk_id": chunk_id,
+                    "filename": metadata["doc_filename"],
+                    "chunk_index": metadata["chunk_index"],
+                    "doc_number": metadata.get("doc_number") or "",
+                }
+            )
+
+        return chunk_ids, embeddings, minimal_metadata
+
+
+class DocumentStore:
+    """Centralized storage for document text content and metadata."""
+
+    def __init__(self, db_path: str = "database/documents.sqlite"):
+        """Initialize document store with SQLite backend.
+
+        Args:
+            db_path: Path to SQLite database file
+        """
+        self.db_path = db_path
+        self.logger = logging.getLogger(__name__)
+
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+        # Initialize database
+        self._init_database()
+
+    def _init_database(self):
+        """Create database tables if they don't exist."""
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS documents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL,
+                    doc_path TEXT NOT NULL,
+                    doc_number TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(filename, doc_path)
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS chunks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chunk_id TEXT UNIQUE NOT NULL,
+                    document_id INTEGER NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_text TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (document_id) REFERENCES documents (id),
+                    UNIQUE(document_id, chunk_index)
+                )
+            """)
+
+            # Create indexes for faster lookups
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_id ON chunks(chunk_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_documents_filename ON documents(filename)"
+            )
+            conn.commit()
+
+    def add_documents(
+        self,
+        documents: List[Dict],
+        chunk_metadata: List[Dict],
+        clear_existing: bool = True,
+    ) -> Dict[str, str]:
+        """Add documents and chunks to store.
+
+        Args:
+            documents: List of document metadata dicts
+            chunk_metadata: List of chunk metadata dicts
+            clear_existing: Whether to clear existing data
+
+        Returns:
+            Dict mapping chunk metadata object id to chunk_id
+        """
+        import sqlite3
+        import hashlib
+
+        self.logger.info("Adding %s documents to document store...", len(documents))
+
+        with sqlite3.connect(self.db_path) as conn:
+            if clear_existing:
+                self.logger.info("Clearing existing document data...")
+                conn.execute("DELETE FROM chunks")
+                conn.execute("DELETE FROM documents")
+                conn.execute(
+                    "DELETE FROM sqlite_sequence WHERE name IN ('chunks', 'documents')"
+                )
+                conn.commit()
+
+            # Insert documents
+            doc_id_map = {}
+            for doc in documents:
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO documents (filename, doc_path, doc_number)
+                    VALUES (?, ?, ?)
+                """,
+                    (doc["filename"], doc["path"], doc.get("doc_number", "")),
+                )
+
+                # Get the document ID
+                doc_id = cursor.lastrowid
+                if doc_id == 0:  # Document already exists
+                    doc_id = conn.execute(
+                        """
+                        SELECT id FROM documents WHERE filename = ? AND doc_path = ?
+                    """,
+                        (doc["filename"], doc["path"]),
+                    ).fetchone()[0]
+
+                doc_id_map[doc["filename"]] = doc_id
+
+            # Insert chunks and build chunk_id mapping
+            chunk_id_map = {}
+            for metadata in chunk_metadata:
+                doc_filename = metadata["doc_filename"]
+                doc_id = doc_id_map[doc_filename]
+
+                # Create unique chunk_id
+                doc_path = metadata.get("doc_path", "")
+                if doc_path:
+                    path_hash = hashlib.md5(doc_path.encode()).hexdigest()[:8]
+                    chunk_id = f"{path_hash}_{doc_filename}_{metadata['chunk_index']}"
+                else:
+                    chunk_id = f"{doc_filename}_{metadata['chunk_index']}"
+
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO chunks (chunk_id, document_id, chunk_index, chunk_text)
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (chunk_id, doc_id, metadata["chunk_index"], metadata["chunk_text"]),
+                )
+
+                # Store mapping for vector store to use
+                chunk_id_map[id(metadata)] = chunk_id
+
+            conn.commit()
+
+        self.logger.info("Added %s chunks to document store", len(chunk_metadata))
+        return chunk_id_map
+
+    def get_all_chunks(self) -> List[Dict]:
+        """Get all chunks with their metadata."""
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            results = conn.execute("""
+                SELECT c.chunk_id, c.chunk_text, c.chunk_index,
+                       d.filename, d.doc_path, d.doc_number
+                FROM chunks c
+                JOIN documents d ON c.document_id = d.id
+                ORDER BY d.filename, c.chunk_index
+            """).fetchall()
+
+            return [
+                {
+                    "chunk_id": result["chunk_id"],
+                    "chunk_text": result["chunk_text"],
+                    "chunk_index": result["chunk_index"],
+                    "filename": result["filename"],
+                    "doc_path": result["doc_path"],
+                    "doc_number": result["doc_number"],
+                }
+                for result in results
+            ]
+
+    def get_chunks_by_ids(self, chunk_ids: List[str]) -> List[Dict]:
+        """Get multiple chunks by their IDs."""
+        import sqlite3
+
+        if not chunk_ids:
+            return []
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            placeholders = ",".join("?" * len(chunk_ids))
+            results = conn.execute(
+                f"""
+                SELECT c.chunk_id, c.chunk_text, c.chunk_index,
+                       d.filename, d.doc_path, d.doc_number
+                FROM chunks c
+                JOIN documents d ON c.document_id = d.id
+                WHERE c.chunk_id IN ({placeholders})
+            """,
+                chunk_ids,
+            ).fetchall()
+
+            return [
+                {
+                    "chunk_id": result["chunk_id"],
+                    "chunk_text": result["chunk_text"],
+                    "chunk_index": result["chunk_index"],
+                    "filename": result["filename"],
+                    "doc_path": result["doc_path"],
+                    "doc_number": result["doc_number"],
+                }
+                for result in results
+            ]
+
+    def check_existing_documents(
+        self, documents: List[Dict]
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """Check which documents already exist in the store."""
+        import sqlite3
+
+        existing_filenames = set()
+
+        with sqlite3.connect(self.db_path) as conn:
+            results = conn.execute("SELECT filename FROM documents").fetchall()
+            existing_filenames = {row[0] for row in results}
+
+        new_documents = []
+        existing_documents = []
+
+        for doc in documents:
+            if doc["filename"] in existing_filenames:
+                existing_documents.append(doc)
+            else:
+                new_documents.append(doc)
+
+        return new_documents, existing_documents
+
+    def get_stats(self) -> Dict:
+        """Get document store statistics."""
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+            chunk_count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+
+            # Calculate database size
+            db_size_mb = 0
+            if os.path.exists(self.db_path):
+                db_size_mb = round(os.path.getsize(self.db_path) / 1024 / 1024, 2)
+
+            return {
+                "documents": doc_count,
+                "chunks": chunk_count,
+                "db_size_mb": db_size_mb,
+                "db_path": self.db_path,
+            }
+
+    def list_documents(self) -> List[Dict]:
+        """Get list of all documents with metadata."""
+        import sqlite3
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            results = conn.execute("""
+                SELECT d.filename, d.doc_path, d.doc_number, d.created_at,
+                       COUNT(c.id) as chunk_count
+                FROM documents d
+                LEFT JOIN chunks c ON d.id = c.document_id
+                GROUP BY d.id, d.filename, d.doc_path, d.doc_number, d.created_at
+                ORDER BY d.filename
+            """).fetchall()
+
+            return [
+                {
+                    "filename": result["filename"],
+                    "path": result["doc_path"],
+                    "doc_number": result["doc_number"],
+                    "chunk_count": result["chunk_count"],
+                    "created_at": result["created_at"],
+                }
+                for result in results
+            ]
 
 
 # Legacy functions for compatibility

@@ -93,7 +93,13 @@ def test_vector_store(mock_embedding_model, temp_database_dir):
     _ = mock_embedding_model, temp_database_dir  # Acknowledge fixture usage
 
     # Create test documents with mocked embeddings
-    processor = DocumentProcessor()
+    from src.documents import DocumentStore
+    import os
+
+    document_store = DocumentStore(
+        os.path.join(temp_database_dir, "test_documents.sqlite")
+    )
+    processor = DocumentProcessor(document_store=document_store)
     test_dir = "policies/test"
     test_files = [f for f in os.listdir(test_dir) if f.endswith(".pdf")][:2]
 
@@ -112,24 +118,26 @@ def test_vector_store(mock_embedding_model, temp_database_dir):
         pytest.skip("No documents could be processed")
 
     # Create embeddings and initialize store
-    chunks, embeddings, metadata = processor.create_embeddings_for_docs(docs)
-    store = SimpleVectorStore(collection_name="test_vectorstore_isolated")
+    chunk_ids, embeddings, minimal_metadata = processor.create_embeddings_for_docs(docs)
+    store = SimpleVectorStore(
+        collection_name="test_vectorstore_isolated", document_store=document_store
+    )
 
     try:
         # Add documents and test search
-        store.add_documents(docs, embeddings, metadata)
+        store.add_documents(chunk_ids, embeddings, minimal_metadata)
         query_embedding = np.random.rand(384).astype(np.float32)
         results = store.similarity_search(query_embedding, top_k=3)
 
         # Verify results
         assert isinstance(results, list), "Results should be a list"
         assert len(results) <= 3, "Should return at most 3 results"
-        assert len(results) <= len(chunks), "Cannot return more results than chunks"
+        assert len(results) <= len(chunk_ids), "Cannot return more results than chunks"
 
         # Verify stats
         stats = store.get_stats()
         assert stats["documents"] > 0, "Should have processed documents"
-        assert stats["chunks"] == len(chunks), "Should have correct chunk count"
+        assert stats["chunks"] == len(chunk_ids), "Should have correct chunk count"
 
         # Verify result structure
         for result in results:

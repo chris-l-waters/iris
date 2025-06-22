@@ -16,12 +16,15 @@ from .config import (
 class SimpleVectorStore:
     """Simple vector store using ChromaDB following YAGNI principles."""
 
-    def __init__(self, collection_name: str = None, db_path: str = None):
+    def __init__(
+        self, collection_name: str = None, db_path: str = None, document_store=None
+    ):
         """Initialize vector store with ChromaDB.
 
         Args:
             collection_name: Name of the ChromaDB collection
             db_path: Legacy parameter for backward compatibility
+            document_store: DocumentStore instance for text retrieval
         """
         # Determine collection name
         if collection_name:
@@ -41,6 +44,9 @@ class SimpleVectorStore:
         self.persist_dir = DEFAULT_CHROMA_PERSIST_DIR
         os.makedirs(self.persist_dir, exist_ok=True)
 
+        # Store document store for text retrieval
+        self.document_store = document_store
+
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(path=self.persist_dir)
         self.logger = logging.getLogger(__name__)
@@ -52,13 +58,20 @@ class SimpleVectorStore:
 
     def add_documents(
         self,
-        documents: List[Dict],
+        chunk_ids: List[str],
         embeddings: np.ndarray,
-        chunk_metadata: List[Dict],
+        minimal_metadata: List[Dict],
         clear_existing: bool = True,
     ):
-        """Add documents and their embeddings to the store."""
-        self.logger.info("Adding %s documents to vector store...", len(documents))
+        """Add chunk embeddings to the vector store.
+
+        Args:
+            chunk_ids: List of chunk IDs from DocumentStore
+            embeddings: Numpy array of embeddings
+            minimal_metadata: List of minimal metadata (no text content)
+            clear_existing: Whether to clear existing collection
+        """
+        self.logger.info("Adding %s embeddings to vector store...", len(chunk_ids))
 
         try:
             if clear_existing:
@@ -73,75 +86,14 @@ class SimpleVectorStore:
                 )
                 self.logger.info("Collection cleared and recreated successfully")
 
-                # Process all documents since we cleared everything
-                new_documents = documents
-                existing_documents = []
-            else:
-                # Check for existing documents to avoid duplicates
-                new_documents, existing_documents = self.check_existing_documents(
-                    documents
-                )
+            # Prepare data for ChromaDB - no text documents, just chunk IDs
+            embeddings_list = [embedding.tolist() for embedding in embeddings]
 
-                if existing_documents:
-                    self.logger.info(
-                        "Skipping %s documents that already exist: %s",
-                        len(existing_documents),
-                        [doc["filename"] for doc in existing_documents],
-                    )
-
-                if not new_documents:
-                    self.logger.info("No new documents to add")
-                    return
-
-                self.logger.info("Adding %s new documents", len(new_documents))
-
-            # Prepare data for ChromaDB
-            ids = []
-            documents_text = []
-            embeddings_list = []
-            metadata_list = []
-
-            new_doc_filenames = {doc["filename"] for doc in new_documents}
-
-            for metadata, embedding in zip(chunk_metadata, embeddings):
-                doc_filename = metadata["doc_filename"]
-
-                # Only process chunks for new documents
-                if doc_filename in new_doc_filenames:
-                    # Create unique ID for each chunk using full path to avoid duplicates
-                    doc_path = metadata.get("doc_path", "")
-                    if doc_path:
-                        # Use a hash of the full path to create a unique prefix
-                        import hashlib
-
-                        path_hash = hashlib.md5(doc_path.encode()).hexdigest()[:8]
-                        chunk_id = (
-                            f"{path_hash}_{doc_filename}_{metadata['chunk_index']}"
-                        )
-                    else:
-                        chunk_id = f"{doc_filename}_{metadata['chunk_index']}"
-                    ids.append(chunk_id)
-                    documents_text.append(metadata["chunk_text"])
-                    embeddings_list.append(embedding.tolist())
-
-                    # Store metadata
-                    chunk_meta = {
-                        "filename": doc_filename,
-                        "chunk_index": metadata["chunk_index"],
-                        "doc_path": next(
-                            (
-                                doc["path"]
-                                for doc in new_documents
-                                if doc["filename"] == doc_filename
-                            ),
-                            "",
-                        ),
-                        "doc_number": metadata.get("doc_number") or "",
-                    }
-                    metadata_list.append(chunk_meta)
+            # Create minimal documents (just chunk IDs as placeholders)
+            documents_placeholder = [f"chunk_{chunk_id}" for chunk_id in chunk_ids]
 
             # Add to ChromaDB collection in batches
-            if ids:
+            if chunk_ids:
                 # Use ChromaDB's recommended batch size, with fallback
                 try:
                     max_batch_size = self.client.get_max_batch_size()
@@ -149,14 +101,14 @@ class SimpleVectorStore:
                     max_batch_size = 1000  # Fallback to conservative size
 
                 batch_size = min(max_batch_size, 1000)  # Conservative approach
-                total_chunks = len(ids)
+                total_chunks = len(chunk_ids)
 
                 for i in range(0, total_chunks, batch_size):
                     end_idx = min(i + batch_size, total_chunks)
-                    batch_ids = ids[i:end_idx]
-                    batch_docs = documents_text[i:end_idx]
+                    batch_ids = chunk_ids[i:end_idx]
+                    batch_docs = documents_placeholder[i:end_idx]
                     batch_embeddings = embeddings_list[i:end_idx]
-                    batch_metadata = metadata_list[i:end_idx]
+                    batch_metadata = minimal_metadata[i:end_idx]
 
                     self.collection.add(
                         ids=batch_ids,
@@ -173,12 +125,12 @@ class SimpleVectorStore:
                     )
 
                 print()  # New line after batch progress
-                self.logger.info("Added %s chunks to vector store", len(ids))
+                self.logger.info("Added %s embeddings to vector store", len(chunk_ids))
             else:
-                self.logger.info("No chunks to add")
+                self.logger.info("No embeddings to add")
 
         except Exception as e:
-            self.logger.error("Error adding documents to vector store: %s", e)
+            self.logger.error("Error adding embeddings to vector store: %s", e)
             raise
 
     def similarity_search(
@@ -186,30 +138,49 @@ class SimpleVectorStore:
     ) -> List[Dict]:
         """Find most similar chunks using ChromaDB's built-in similarity search."""
         try:
-            # Query ChromaDB collection
+            # Query ChromaDB collection for chunk IDs and metadata
             results = self.collection.query(
                 query_embeddings=[query_embedding.tolist()],
                 n_results=top_k,
-                include=["documents", "metadatas", "distances"],
+                include=["metadatas", "distances"],
             )
 
-            if not results or not results["documents"] or not results["documents"][0]:
+            if not results or not results.get("ids") or not results["ids"][0]:
                 return []
 
-            # Convert ChromaDB results to expected format
-            similarities = []
-            documents = results["documents"][0]
+            # Get chunk IDs and fetch text from DocumentStore
+            chunk_ids = results["ids"][0]  # IDs are returned by default
             metadatas = results["metadatas"][0]
             distances = results["distances"][0]
 
-            for doc_text, metadata, distance in zip(documents, metadatas, distances):
+            # Fetch text content from DocumentStore
+            if self.document_store is not None:
+                chunks_data = self.document_store.get_chunks_by_ids(chunk_ids)
+                # Create lookup dict for fast access
+                chunk_text_lookup = {
+                    chunk["chunk_id"]: chunk["chunk_text"] for chunk in chunks_data
+                }
+            else:
+                self.logger.warning(
+                    "DocumentStore not available, cannot fetch chunk text"
+                )
+                chunk_text_lookup = {}
+
+            # Convert ChromaDB results to expected format
+            similarities = []
+            for chunk_id, metadata, distance in zip(chunk_ids, metadatas, distances):
                 # Convert distance to similarity (ChromaDB returns distance, we want similarity)
                 # For cosine distance: similarity = 1 - distance
                 similarity = 1.0 - distance
 
+                # Get chunk text from DocumentStore or use placeholder
+                chunk_text = chunk_text_lookup.get(
+                    chunk_id, f"[Text unavailable for chunk {chunk_id}]"
+                )
+
                 similarities.append(
                     {
-                        "chunk_text": doc_text,
+                        "chunk_text": chunk_text,
                         "filename": metadata["filename"],
                         "chunk_index": metadata["chunk_index"],
                         "similarity": float(similarity),
@@ -288,7 +259,11 @@ class SimpleVectorStore:
     def list_documents(self) -> List[Dict]:
         """Get list of all loaded documents with their metadata."""
         try:
-            # Get all data from collection
+            # Delegate to DocumentStore if available for better metadata
+            if self.document_store is not None:
+                return self.document_store.list_documents()
+
+            # Fallback to ChromaDB metadata if DocumentStore not available
             if self.collection.count() == 0:
                 return []
 
@@ -326,7 +301,11 @@ class SimpleVectorStore:
             tuple: (new_documents, existing_documents)
         """
         try:
-            # Get existing filenames from collection metadata
+            # Delegate to DocumentStore if available for better accuracy
+            if self.document_store is not None:
+                return self.document_store.check_existing_documents(documents)
+
+            # Fallback to ChromaDB metadata if DocumentStore not available
             existing_filenames = set()
             if self.collection.count() > 0:
                 all_data = self.collection.get(include=["metadatas"])

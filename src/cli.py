@@ -502,18 +502,36 @@ def load_documents(
             print(f"Using embedding model: {embedding_model}")
             print("=" * 40)
 
-        # Show existing database stats if any
+        # Check if DocumentStore has existing chunks (for additional embeddings)
         existing_stats = rag.get_stats()
-        if existing_stats.get("documents", 0) > 0:
+        doc_store_stats = (
+            rag.document_store.get_stats() if rag.document_store else {"chunks": 0}
+        )
+
+        # Determine if this is additional embeddings or new database
+        has_existing_chunks = doc_store_stats.get("chunks", 0) > 0
+        has_existing_collection = existing_stats.get("documents", 0) > 0
+
+        if has_existing_collection:
             print(
                 f"Existing collection: {existing_stats['documents']} docs, "
                 f"{existing_stats['db_size_mb']}MB"
             )
-            print("Will clear and rebuild collection...")
-            # Reset vector store so it gets recreated with clear_existing=True
-            rag.vector_store = None
 
-        rag.load_documents(doc_dir, force_reload=True, verbose=verbose)
+        if has_existing_chunks and not has_existing_collection:
+            # DocumentStore has chunks but no collection for this model = additional embeddings
+            print(f"Found {doc_store_stats['chunks']} existing chunks in DocumentStore")
+            print("Creating additional embeddings for existing content...")
+            force_reload = False
+        else:
+            # Either no chunks exist or collection exists = rebuild everything
+            if has_existing_collection:
+                print("Will clear and rebuild collection...")
+                # Reset vector store so it gets recreated with clear_existing=True
+                rag.vector_store = None
+            force_reload = True
+
+        rag.load_documents(doc_dir, force_reload=force_reload, verbose=verbose)
         _print_stats_and_status(rag)
         return
 
@@ -553,12 +571,14 @@ def load_from_intermediate(
 
         total_chunks = sum(doc["chunk_count"] for doc in all_docs)
         print(f"\nGenerating embeddings for all {total_chunks} chunks...")
-        _, embeddings, metadata = rag.processor.create_embeddings_for_docs(all_docs)
+        chunk_ids, embeddings, minimal_metadata = (
+            rag.processor.create_embeddings_for_docs(all_docs)
+        )
 
         # Add all documents to vector store at once
         # pylint: disable=protected-access
         store = rag._ensure_vector_store()
-        store.add_documents(all_docs, embeddings, metadata)
+        store.add_documents(chunk_ids, embeddings, minimal_metadata)
         print("Added all documents to vector database")
 
         _print_stats_and_status(rag)

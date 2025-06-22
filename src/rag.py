@@ -197,7 +197,16 @@ class SimpleRAG:
                 self.collection_name = "iris_default"
             self.db_path = db_path
         self.embedding_model = embedding_model
-        self.processor = DocumentProcessor(embedding_model)
+
+        # Initialize DocumentStore
+        from .documents import DocumentStore
+
+        self.document_store = DocumentStore("database/documents.sqlite")
+
+        # Initialize DocumentProcessor with DocumentStore
+        self.processor = DocumentProcessor(
+            embedding_model, document_store=self.document_store
+        )
         self.vector_store = None
         self.llm = LLMProcessor(model_name)
         self.ranker = DocumentAwareRanker()
@@ -206,7 +215,9 @@ class SimpleRAG:
     def _ensure_vector_store(self):
         """Lazy load vector store."""
         if self.vector_store is None:
-            self.vector_store = SimpleVectorStore(collection_name=self.collection_name)
+            self.vector_store = SimpleVectorStore(
+                collection_name=self.collection_name, document_store=self.document_store
+            )
         return self.vector_store
 
     def load_documents(
@@ -218,7 +229,31 @@ class SimpleRAG:
         """Load and process documents into vector store."""
         print(f"Loading documents from {document_dir}")
 
-        # Process documents
+        # Check if DocumentStore has existing chunks (additional embeddings flow)
+        if not force_reload and self.document_store:
+            existing_chunks = self.document_store.get_all_chunks()
+            if existing_chunks:
+                print(f"Found {len(existing_chunks)} existing chunks in DocumentStore")
+                print(
+                    "Using existing chunks for additional embeddings (skipping document processing)"
+                )
+
+                # Use existing chunks from DocumentStore - no document processing needed
+                chunk_ids, embeddings, minimal_metadata = (
+                    self.processor.create_embeddings_for_docs([])
+                )
+
+                # Store in vector database
+                store = self._ensure_vector_store()
+                store.add_documents(
+                    chunk_ids, embeddings, minimal_metadata, clear_existing=False
+                )
+
+                self._documents_loaded = True
+                print(f"Generated embeddings for {len(chunk_ids)} existing chunks")
+                return
+
+        # New database flow - process documents
         print("Processing PDF documents (extracting text and creating chunks)...")
         docs = self.processor.process_directory(document_dir, verbose=verbose)
         if not docs:
@@ -254,15 +289,17 @@ class SimpleRAG:
         # Create embeddings for documents to process
         total_chunks = sum(doc["chunk_count"] for doc in docs_to_process)
         print(f"Generating embeddings for {total_chunks} chunks...")
-        chunks, embeddings, metadata = self.processor.create_embeddings_for_docs(
-            docs_to_process
+        chunk_ids, embeddings, minimal_metadata = (
+            self.processor.create_embeddings_for_docs(docs_to_process)
         )
 
         # Store in vector database
-        store.add_documents(docs, embeddings, metadata, clear_existing=clear_existing)
+        store.add_documents(
+            chunk_ids, embeddings, minimal_metadata, clear_existing=clear_existing
+        )
 
         self._documents_loaded = True
-        print(f"Loaded {len(docs_to_process)} documents with {len(chunks)} chunks")
+        print(f"Loaded {len(docs_to_process)} documents with {len(chunk_ids)} chunks")
 
     def retrieve_context(
         self,

@@ -18,7 +18,7 @@ A portfolio project demonstrating edge AI deployment for querying DOD Directives
 ### Download DOD Issuances
 To generate the vector database, you will need to manually download the policies from https://esd.whs.mil/. This README assumes you will save them to policies/dodi, policies/dodm, and policies/dodd. As of 19 June 2025 there were 1005 documents retrievable from this site.
 
-Alternatively, a .torrent with prebuilt vector databases and policy PDFs can be used. This will get you querying much faster: 
+Alternatively, a .torrent with prebuilt vector databases and policy PDFs can be used. It will likely take several hours to generate embeddings with the highest performer if you lack a CUDA-capable GPU or Apple silicon. This will get you querying much, much faster: 
 ```magnet:?xt=urn:btih:566FC09B4D96054B309BCD5EBA69B3CE971A77A0&dn=iris_database&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce```
 
 ### Setup (Windows)
@@ -340,6 +340,7 @@ gui/
 
 database/                 # ChromaDB vector database (auto-created)
 ├── chroma.sqlite3        # ChromaDB metadata and collections
+├── documents.sqlite3     # Document chunks (shared between embeddings)
 └── [uuid-dirs]/          # Collection data (binary files)
 
 (policies/)               # DOD document collection (downloaded separately)
@@ -382,21 +383,21 @@ Makefile                  # Build and setup automation
 - **Adjacency Boosting**: Sequential chunks (before/after relevant content) are boosted to provide better context and narrative flow
 
 ## Performance Benchmarks
-#### Document Extraction + Embeddings
+#### Document Extraction + Embeddings (310MB total)
 
-| System Configuration | Document Extraction | all-MiniLM-L6-v2 | all-mpnet-base-v2 | mixedbread-ai/mxbai-embed-large-v1 | Vector DB Size |
-|----------------------|--------------------|--------------------|-------------------|----------------------|----------------|
-| **M4 Mac Mini**<br>10 core CPU/GPU, 16GB RAM | X | X | X | X | X |
-| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | X | X | X | X | X |
+| System Configuration | Document Extraction | all-MiniLM-L6-v2 | all-mpnet-base-v2 | mixedbread-ai/mxbai-embed-large-v1 |
+|----------------------|--------------------|--------------------|-------------------|----------------------|
+| **M4 Mac Mini**<br>10 core CPU/GPU, 16GB RAM | X | 1m 42s | 13m 42s | 49m 16s |
+| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | 4m 59s | 3m 17s | 42m 49s | (chose not to run) |
 
 #### Query Response Performance Benchmarks
 ##### Test Query: *"What ACAT levels delegate decision authority to the service components?"*
 
 | M4, 10 core CPU/GPU | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | X | X | X | X | X |
-| **all-mpnet-base-v2** | X | X | X | X | X |
-| **mixedbread-ai/mxbai-embed-large-v1** | X | X | X | X | X |
+| **all-MiniLM-L6-v2** | 6.3s | 11.4s | 11.2s | 51.1s | 33.8s |
+| **all-mpnet-base-v2** | 5.6s | 6.5s | 11.3s | 62.7s | 32.9s |
+| **mixedbread-ai/mxbai-embed-large-v1** | 8.1s† | 7.2s† | 21.0s† | 58.0s†* | 44.1s† |
 
 | 9800X3D/6950XT | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
@@ -434,3 +435,7 @@ Windows 10 was tested for installation and verification, not benchmarking; I onl
 ## License
 
 Apache License 2.0
+
+# Contact
+
+**Dr. Christopher Waters** - chris@dr-w.co  - [Github account](https://github.com/chris-l-waters)

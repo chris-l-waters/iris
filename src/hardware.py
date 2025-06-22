@@ -54,9 +54,9 @@ def recommend_embedding_model(ram_gb: Optional[float] = None) -> str:
         ram_gb = get_ram_gb()
 
     # Choose best quality model that fits in available RAM
-    # Simplified progression: fast -> policy-optimized -> high accuracy
-    if ram_gb >= 16:  # High-end systems get high accuracy
-        return "BAAI/bge-base-en-v1.5"  # 85.2 quality, 850MB RAM
+    # Simplified progression: fast -> policy-optimized -> best retrieval
+    if ram_gb >= 16:  # High-end systems get best retrieval
+        return "mixedbread-ai/mxbai-embed-large-v1"  # 87.2 quality, 1200MB RAM
     elif ram_gb >= 8:  # Standard systems get policy-optimized model
         return "all-mpnet-base-v2"  # 84.8 quality, 800MB RAM
     else:  # Lower-end systems get fast processing

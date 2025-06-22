@@ -386,7 +386,6 @@ Examples:
         choices=[
             "all-MiniLM-L6-v2",
             "all-mpnet-base-v2",
-            "BAAI/bge-base-en-v1.5",
             "mixedbread-ai/mxbai-embed-large-v1",
         ],
         help="Embedding model for semantic search (default: all-MiniLM-L6-v2)",
@@ -396,6 +395,12 @@ Examples:
         "--keep-model-loaded",
         action="store_true",
         help="Keep model loaded in memory indefinitely (faster subsequent queries)",
+    )
+
+    parser.add_argument(
+        "--xencode",
+        action="store_true",
+        help="Enable cross-encoder reranking for improved result quality",
     )
 
     parser.add_argument(
@@ -439,6 +444,7 @@ Examples:
                 args.max_k,
                 args.embedding_model,
                 args.keep_model_loaded,
+                args.xencode,
             )
         elif args.test:
             run_system_test()
@@ -595,12 +601,15 @@ def process_query(
     max_k: int = None,
     embedding_model: str = "all-MiniLM-L6-v2",
     keep_model_loaded: bool = False,
+    use_cross_encoder: bool = False,
 ) -> None:
     """Process a user query."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     print(f"Processing query: {question}")
     print(f"Using embedding model: {embedding_model}")
+    if use_cross_encoder:
+        print("Cross-encoder reranking: ENABLED")
     print("-" * 40)
 
     rag = SimpleRAG(model_name=model_name, embedding_model=embedding_model)
@@ -635,6 +644,7 @@ def process_query(
             max_k=max_k,
             return_context=True,
             keep_model_loaded=keep_model_loaded,
+            use_cross_encoder=use_cross_encoder,
         )
         if isinstance(result, tuple):
             response, context_results = result
@@ -646,19 +656,27 @@ def process_query(
                 filename = chunk_result.get("filename", "Unknown")
                 doc_number = chunk_result.get("doc_number", "")
                 similarity = chunk_result.get("similarity", 0)
+                cross_encoder_score = chunk_result.get("cross_encoder_score")
                 chunk_text = chunk_result.get("chunk_text", "")
 
                 print(f"\n[Chunk {i}] Source: {filename}")
                 if doc_number:
                     print(f"Document Number: {doc_number}")
                 print(f"Similarity: {similarity:.3f}")
+                if cross_encoder_score is not None:
+                    print(f"Cross-encoder Score: {cross_encoder_score:.3f}")
                 print("-" * 40)
                 print(chunk_text[:500] + "..." if len(chunk_text) > 500 else chunk_text)
             print("-" * 60)
         else:
             response = result
     else:
-        response = rag.query(question, max_k=max_k, keep_model_loaded=keep_model_loaded)
+        response = rag.query(
+            question,
+            max_k=max_k,
+            keep_model_loaded=keep_model_loaded,
+            use_cross_encoder=use_cross_encoder,
+        )
 
     print("\nResponse:")
     print(response)

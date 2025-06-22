@@ -31,12 +31,15 @@ def load_config() -> Dict[str, Any]:
                     "max_chunk_size": 400,
                     "max_table_chunk_size": 450,
                     "enable_hierarchical_grouping": True,
+                    "chunk_overlap_words": 26,
+                    "respect_section_boundaries": True,
+                    "prefer_sentence_breaks": True,
                 },
                 "header_footer_zone_ratio": 0.1,
                 "line_tolerance_pixels": 5,
                 "min_header_footer_chars": 50,
                 "max_header_footer_words": 3,
-                "min_line_length": 15,
+                "min_line_length": 2,
                 "first_page_sample_chars": 2000,
             },
             "web_interface": {"default_port": 8080, "default_host": "localhost"},
@@ -54,6 +57,15 @@ def load_config() -> Dict[str, Any]:
                 "same_major_group_boost": 1.2,
                 "enable_document_aware_ranking": True,
                 "apply_boosts_to_top_result": True,
+            },
+            "retrieval": {
+                "cross_encoder": {
+                    "model_name": "cross-encoder/ms-marco-MiniLM-L6-v2",
+                    "rerank_top_k": 20,
+                    "final_top_k": 10,
+                    "batch_size": 8,
+                    "max_length": 512,
+                }
             },
             "llm": {
                 "default_context_window": 4096,
@@ -266,6 +278,76 @@ class Config:
         """Get boost factor for nearby chunks (±3-5 distance)."""
         return self.get("ranking.nearby_chunk_boost", 1.05)
 
+    # Cross-encoder configuration properties
+    @property
+    def cross_encoder_model_name(self):
+        """Get cross-encoder model name."""
+        return self.get(
+            "retrieval.cross_encoder.model_name", "cross-encoder/ms-marco-MiniLM-L6-v2"
+        )
+
+    @property
+    def cross_encoder_rerank_top_k(self):
+        """Get number of candidates to rerank with cross-encoder."""
+        return self.get("retrieval.cross_encoder.rerank_top_k", 20)
+
+    @property
+    def cross_encoder_final_top_k(self):
+        """Get final number of results after reranking."""
+        return self.get("retrieval.cross_encoder.final_top_k", 10)
+
+    @property
+    def cross_encoder_batch_size(self):
+        """Get batch size for cross-encoder inference."""
+        return self.get("retrieval.cross_encoder.batch_size", 8)
+
+    @property
+    def cross_encoder_max_length(self):
+        """Get max tokens for query+passage pairs."""
+        return self.get("retrieval.cross_encoder.max_length", 512)
+
+    # Embedding models configuration
+    @property
+    def embedding_models(self):
+        """Get available embedding models configuration."""
+        return self.get(
+            "embedding_models",
+            {
+                "all-MiniLM-L6-v2": {
+                    "description": "Fast, lightweight model (default)",
+                    "ram_usage_mb": 200,
+                    "speed_sentences_per_sec": 1000,
+                    "quality_score": 81.3,
+                    "best_for": "Fast processing",
+                    "trust_remote_code": False,
+                    "tier": 0,
+                },
+                "all-mpnet-base-v2": {
+                    "description": "High quality semantic understanding",
+                    "ram_usage_mb": 800,
+                    "speed_sentences_per_sec": 200,
+                    "quality_score": 84.8,
+                    "best_for": "Policy documents",
+                    "trust_remote_code": False,
+                    "tier": 1,
+                },
+                "mixedbread-ai/mxbai-embed-large-v1": {
+                    "description": "SOTA retrieval model (335M params, optimized)",
+                    "ram_usage_mb": 1200,
+                    "speed_sentences_per_sec": 150,
+                    "quality_score": 87.2,
+                    "best_for": "Best retrieval performance",
+                    "trust_remote_code": False,
+                    "tier": 2,
+                },
+            },
+        )
+
+    @property
+    def llm_models(self):
+        """Get available LLM models configuration."""
+        return self.get("llm.models", {})
+
 
 # Create global config instance
 config = Config()
@@ -281,6 +363,13 @@ MIN_CHUNK_SIZE = SECTIONAL_CHUNKING_CONFIG["min_chunk_size"]
 MAX_CHUNK_SIZE = SECTIONAL_CHUNKING_CONFIG["max_chunk_size"]
 MAX_TABLE_CHUNK_SIZE = SECTIONAL_CHUNKING_CONFIG["max_table_chunk_size"]
 ENABLE_HIERARCHICAL_GROUPING = SECTIONAL_CHUNKING_CONFIG["enable_hierarchical_grouping"]
+
+# Overlap settings
+CHUNK_OVERLAP_WORDS = SECTIONAL_CHUNKING_CONFIG.get("chunk_overlap_words", 26)
+RESPECT_SECTION_BOUNDARIES = SECTIONAL_CHUNKING_CONFIG.get(
+    "respect_section_boundaries", True
+)
+PREFER_SENTENCE_BREAKS = SECTIONAL_CHUNKING_CONFIG.get("prefer_sentence_breaks", True)
 
 HEADER_FOOTER_ZONE_RATIO = _config["document_processing"]["header_footer_zone_ratio"]
 LINE_TOLERANCE_PIXELS = _config["document_processing"]["line_tolerance_pixels"]

@@ -16,11 +16,16 @@ document_processing:
   
   # Hierarchical sectional chunking (single optimal size for all tiers)
   sectional_chunking:
-    target_chunk_size: 700     # Optimal size for semantic coherence across all LLM tiers
-    min_chunk_size: 200        # Don't split sections smaller than this
-    max_chunk_size: 1200       # Force split if larger than this
-    max_table_chunk_size: 450  # Allow larger chunks for tables to preserve structure
+    target_chunk_size: 300     # Optimal size for semantic coherence (≈400 tokens)
+    min_chunk_size: 150        # Don't split sections smaller than this (≈200 tokens)
+    max_chunk_size: 400        # Force split if larger than this (≈533 tokens)
+    max_table_chunk_size: 450  # Allow larger chunks for tables to preserve structure (≈600 tokens)
     enable_hierarchical_grouping: true  # Group subsections under parent sections
+    
+    # Overlap settings for improved retrieval
+    chunk_overlap_words: 26          # Target overlap (~35 tokens equivalent)
+    respect_section_boundaries: true # Don't overlap across major sections
+    prefer_sentence_breaks: true     # Break at sentence endings when possible
   
   # Performance optimization settings
   enable_section_caching: true  # Cache section detection results
@@ -33,7 +38,7 @@ document_processing:
   # Text filtering thresholds
   min_header_footer_chars: 50    # Minimum characters to not be header/footer
   max_header_footer_words: 3     # Maximum words for header/footer detection
-  min_line_length: 15           # Minimum line length to include in cleaned text
+  min_line_length: 2            # Minimum line length to include in cleaned text
   first_page_sample_chars: 2000  # Characters to extract as first page sample
 
 # Web interface configuration
@@ -69,6 +74,45 @@ ranking:
   # Ranking strategy
   enable_document_aware_ranking: true    # Enable enhanced document-aware ranking
   apply_boosts_to_top_result: true      # Apply boosts even to the top-ranked result
+
+# Retrieval configuration
+retrieval:
+  # Cross-encoder model settings (NO enable/disable - controlled at runtime)
+  cross_encoder:
+    model_name: "cross-encoder/ms-marco-MiniLM-L6-v2"
+    rerank_top_k: 20          # Number of candidates to rerank  
+    final_top_k: 10           # Final number after reranking
+    batch_size: 8             # Batch size for cross-encoder inference
+    max_length: 512           # Max tokens for query+passage pairs
+
+# Embedding model configurations with performance characteristics
+embedding_models:
+  "all-MiniLM-L6-v2":
+    description: "Fast, lightweight model (default)"
+    ram_usage_mb: 200
+    speed_sentences_per_sec: 1000
+    quality_score: 81.3
+    best_for: "Fast processing"
+    trust_remote_code: false
+    tier: 0
+  
+  "all-mpnet-base-v2":
+    description: "High quality semantic understanding"
+    ram_usage_mb: 800
+    speed_sentences_per_sec: 200
+    quality_score: 84.8
+    best_for: "Policy documents"
+    trust_remote_code: false
+    tier: 1
+  
+  "mixedbread-ai/mxbai-embed-large-v1":
+    description: "SOTA retrieval model (335M params, optimized)"
+    ram_usage_mb: 1200
+    speed_sentences_per_sec: 150
+    quality_score: 87.2
+    best_for: "Best retrieval performance"
+    trust_remote_code: false
+    tier: 2
 
 # LLM configuration
 llm:

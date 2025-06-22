@@ -244,6 +244,35 @@ Answer:"""
 
         return selected_chunks, final_prompt_tokens
 
+    def extract_citations(
+        self, fitted_chunks: List[str], context_results: List[dict]
+    ) -> List[str]:
+        """Extract unique document numbers from fitted chunks."""
+        if not context_results:
+            return []
+
+        doc_numbers = set()
+
+        for chunk_text in fitted_chunks:
+            for result in context_results:
+                if result["chunk_text"] == chunk_text:
+                    doc_num = result.get("doc_number")
+                    if doc_num and doc_num.strip():
+                        doc_numbers.add(doc_num.strip())
+                    break
+
+        return sorted(list(doc_numbers))
+
+    def format_response_with_citations(
+        self, response: str, citations: List[str]
+    ) -> str:
+        """Append citations to response."""
+        if not citations:
+            return response
+
+        citation_text = ", ".join(citations)
+        return f"{response}\n\nSources: {citation_text}"
+
     def generate_rag_response(
         self,
         question: str,
@@ -251,6 +280,7 @@ Answer:"""
         max_chunks: int = None,
         return_context: bool = False,
         keep_alive=None,
+        context_results: List[dict] = None,
     ):
         """Generate a response using RAG context."""
         if not context_chunks:
@@ -292,7 +322,12 @@ Answer:"""
                 response = response[len(prefix) :].strip()
                 break
 
-        final_response = "Based on DOD policies: " + response
+        # Extract citations from fitted chunks
+        citations = self.extract_citations(fitted_chunks, context_results or [])
+
+        # Format response with citations
+        base_response = "Based on DOD policies: " + response
+        final_response = self.format_response_with_citations(base_response, citations)
 
         if return_context:
             return final_response, fitted_chunks

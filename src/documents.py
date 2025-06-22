@@ -16,6 +16,7 @@ import pdfplumber
 from sentence_transformers import SentenceTransformer
 
 from .config import (
+    CHUNK_OVERLAP_WORDS,
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     FIRST_PAGE_SAMPLE_CHARS,
@@ -23,6 +24,8 @@ from .config import (
     MAX_TABLE_CHUNK_SIZE,
     MIN_CHUNK_SIZE,
     MIN_LINE_LENGTH,
+    PREFER_SENTENCE_BREAKS,
+    RESPECT_SECTION_BOUNDARIES,
     TARGET_CHUNK_SIZE,
 )
 
@@ -517,6 +520,107 @@ class StructureDetector:
         return hierarchy
 
 
+class ChunkOverlapManager:
+    """Manages intelligent chunk overlap using existing document structure."""
+
+    def __init__(self, logger=None):
+        self.logger = logger or logging.getLogger(__name__)
+
+    def calculate_overlap_text(
+        self,
+        chunk1_text: str,
+        chunk2_text: str,
+        structure: DocumentStructure = None,
+        chunk1_sections: List[Dict] = None,
+        chunk2_sections: List[Dict] = None,
+    ) -> str:
+        """Calculate overlap text between two adjacent chunks."""
+        if not RESPECT_SECTION_BOUNDARIES or not structure:
+            # Simple word-based overlap if no structure awareness needed
+            return self._simple_word_overlap(chunk1_text, chunk2_text)
+
+        # Check if overlap would cross major section boundaries
+        if self._crosses_major_section_boundary(chunk1_sections, chunk2_sections):
+            self.logger.debug("Skipping overlap - crosses major section boundary")
+            return ""
+
+        # Calculate overlap respecting sentence boundaries if possible
+        return self._structure_aware_overlap(chunk1_text, chunk2_text)
+
+    def _simple_word_overlap(self, chunk1_text: str, chunk2_text: str) -> str:
+        """Simple word-based overlap calculation."""
+        words1 = chunk1_text.split()
+        words2 = chunk2_text.split()
+
+        # Take last CHUNK_OVERLAP_WORDS from chunk1 or first from chunk2, whichever is shorter
+        if len(words1) >= CHUNK_OVERLAP_WORDS:
+            overlap_words = words1[-CHUNK_OVERLAP_WORDS:]
+        elif len(words2) >= CHUNK_OVERLAP_WORDS:
+            overlap_words = words2[:CHUNK_OVERLAP_WORDS]
+        else:
+            # Not enough words for meaningful overlap
+            return ""
+
+        return " ".join(overlap_words)
+
+    def _crosses_major_section_boundary(
+        self, chunk1_sections: List[Dict], chunk2_sections: List[Dict]
+    ) -> bool:
+        """Check if overlap would cross level 0-2 section boundaries."""
+        if not chunk1_sections or not chunk2_sections:
+            return False
+
+        # Check if either chunk contains level 0-2 sections
+        major_sections_1 = [s for s in chunk1_sections if s["level"] <= 2]
+        major_sections_2 = [s for s in chunk2_sections if s["level"] <= 2]
+
+        if not major_sections_1 or not major_sections_2:
+            return False
+
+        # If chunks contain different major sections, don't overlap
+        section_ids_1 = {s["index"] for s in major_sections_1}
+        section_ids_2 = {s["index"] for s in major_sections_2}
+
+        return len(section_ids_1.intersection(section_ids_2)) == 0
+
+    def _structure_aware_overlap(self, chunk1_text: str, chunk2_text: str) -> str:
+        """Calculate overlap preferring sentence boundaries."""
+        if not PREFER_SENTENCE_BREAKS:
+            return self._simple_word_overlap(chunk1_text, chunk2_text)
+
+        # Split chunk1 into sentences and take from the end
+        sentences1 = self._split_into_sentences(chunk1_text)
+        if not sentences1:
+            return self._simple_word_overlap(chunk1_text, chunk2_text)
+
+        # Build overlap from end of chunk1, staying within word limit
+        overlap_parts = []
+        total_words = 0
+
+        for sentence in reversed(sentences1):
+            sentence_words = len(sentence.split())
+            if total_words + sentence_words <= CHUNK_OVERLAP_WORDS:
+                overlap_parts.insert(
+                    0, sentence
+                )  # Insert at beginning to maintain order
+                total_words += sentence_words
+            else:
+                # This sentence would exceed limit, stop here
+                break
+
+        if overlap_parts:
+            return " ".join(overlap_parts)
+        else:
+            # No complete sentences fit, fall back to word-based
+            return self._simple_word_overlap(chunk1_text, chunk2_text)
+
+    def _split_into_sentences(self, text: str) -> List[str]:
+        """Split text into sentences using the same logic as existing code."""
+        # Use the same sentence splitting pattern as _split_at_sentences method
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        return [s.strip() for s in sentences if s.strip()]
+
+
 class UnifiedChunker:
     """Implements the unified chunking decision tree."""
 
@@ -524,6 +628,7 @@ class UnifiedChunker:
         self.logger = logger or logging.getLogger(__name__)
         self.text_cleaner = TextCleaner(logger)
         self.structure_detector = StructureDetector(logger)
+        self.overlap_manager = ChunkOverlapManager(logger)
 
     def chunk_text_unified(
         self,
@@ -593,7 +698,7 @@ class UnifiedChunker:
                 if section_content.strip():
                     chunks.append(section_content)
 
-        return self._final_cleanup_and_merge(chunks)
+        return self._final_cleanup_and_merge(chunks, structure)
 
     def _build_hierarchical_chunk(
         self, start_section: Dict, all_sections: List[Dict], lines: List[str]
@@ -1109,8 +1214,10 @@ class UnifiedChunker:
 
         return chunks
 
-    def _final_cleanup_and_merge(self, chunks: List[str]) -> List[str]:
-        """Final cleanup and merging pass."""
+    def _final_cleanup_and_merge(
+        self, chunks: List[str], structure: DocumentStructure = None
+    ) -> List[str]:
+        """Final cleanup and merging pass with optional overlap application."""
         # Clean whitespace in each chunk
         cleaned_chunks = []
         for chunk in chunks:
@@ -1121,8 +1228,14 @@ class UnifiedChunker:
         # Final merging pass for small adjacent chunks
         merged_chunks = self._merge_small_adjacent_chunks(cleaned_chunks)
 
+        # Apply overlap between adjacent chunks if enabled
+        if CHUNK_OVERLAP_WORDS > 0 and len(merged_chunks) > 1:
+            overlapped_chunks = self._apply_overlap_to_chunks(merged_chunks, structure)
+        else:
+            overlapped_chunks = merged_chunks
+
         # Enforce size limits - split any oversized chunks
-        final_chunks = self._enforce_size_limits(merged_chunks)
+        final_chunks = self._enforce_size_limits(overlapped_chunks)
 
         # Log final statistics
         if final_chunks:
@@ -1138,6 +1251,44 @@ class UnifiedChunker:
             )
 
         return final_chunks
+
+    def _apply_overlap_to_chunks(
+        self, chunks: List[str], structure: DocumentStructure = None
+    ) -> List[str]:
+        """Apply overlap between adjacent chunks."""
+        if len(chunks) <= 1:
+            return chunks
+
+        overlapped_chunks = []
+
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                # First chunk - no leading overlap, just add it
+                overlapped_chunks.append(chunk)
+            else:
+                # Calculate overlap with previous chunk
+                prev_chunk = chunks[i - 1]
+
+                # For now, use simple overlap since we don't track section info per chunk
+                # In a more sophisticated implementation, we'd track which sections
+                # each chunk belongs to for better boundary detection
+                overlap_text = self.overlap_manager.calculate_overlap_text(
+                    prev_chunk, chunk, structure
+                )
+
+                if overlap_text:
+                    # Prepend overlap to current chunk
+                    overlapped_chunk = overlap_text + " " + chunk
+                    overlapped_chunks.append(overlapped_chunk)
+
+                    self.logger.debug(
+                        f"Added {len(overlap_text.split())} word overlap between chunks {i - 1} and {i}"
+                    )
+                else:
+                    # No overlap (likely due to section boundary), just add chunk
+                    overlapped_chunks.append(chunk)
+
+        return overlapped_chunks
 
     def _enforce_size_limits(self, chunks: List[str]) -> List[str]:
         """Emergency splitting for any oversized chunks."""

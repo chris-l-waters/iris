@@ -53,18 +53,29 @@
                     <div class="control-group">
                         <label for="embedding-model">Embedding Model:</label>
                         <select id="embedding-model" name="embedding-model">
-                            <option value="all-MiniLM-L6-v2" {{ 'selected' if hardware_info.recommended_embedding == 'all-MiniLM-L6-v2' else '' }}>all-MiniLM-L6-v2 (Fast - 200MB)</option>
-                            <option value="all-mpnet-base-v2" {{ 'selected' if hardware_info.recommended_embedding == 'all-mpnet-base-v2' else '' }}>all-mpnet-base-v2 (Policy Docs - 800MB)</option>
-                            <option value="BAAI/bge-base-en-v1.5" {{ 'selected' if hardware_info.recommended_embedding == 'BAAI/bge-base-en-v1.5' else '' }}>BAAI/bge-base-en-v1.5 (High Accuracy - 850MB)</option>
+                            {% for model_name, model_config in available_embedding_models %}
+                            <option value="{{ model_name }}" {{ 'selected' if hardware_info.recommended_embedding == model_name else '' }}>
+                                {{ model_name.replace('/', '/').split('/')[-1] if '/' in model_name else model_name }} 
+                                ({{ model_config.best_for }} - {{ model_config.ram_usage_mb }}MB)
+                            </option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="control-group">
                         <label for="llm-model">LLM Model:</label>
                         <select id="llm-model" name="llm-model">
                             <option value="">Auto (Hardware-based)</option>
-                            <option value="llama3.2:1b-instruct-q4_K_M">Llama 3.2 1B Instruct Q4 (2-4GB RAM)</option>
-                            <option value="llama3.2:3b-instruct-q4_K_M">Llama 3.2 3B Instruct Q4 (4-6GB RAM)</option>
-                            <option value="mistral:7b-instruct-q4_K_M">Mistral 7B Instruct Q4 (8-12GB RAM)</option>
+                            {% for model_name, model_config in available_models %}
+                            <option value="{{ model_name }}">
+                                {{ model_name.replace(':', ' ').title() }} 
+                                (Tier {{ model_config.tier }}: 
+                                {% if model_config.tier == 0 %}2-4GB RAM{% endif %}
+                                {% if model_config.tier == 1 %}4-6GB RAM{% endif %}
+                                {% if model_config.tier == 2 %}6-8GB RAM{% endif %}
+                                {% if model_config.tier == 3 %}8-12GB RAM{% endif %}
+                                {% if model_config.tier == 4 %}12GB+ RAM{% endif %})
+                            </option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="control-group">
@@ -72,6 +83,12 @@
                             <span class="status-label">Model Status:</span>
                             <span class="status-indicator" id="model-status-indicator">🔴 Unloaded</span>
                         </div>
+                    </div>
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="cross-encoder-enabled" name="cross_encoder" value="true">
+                            Enable cross-encoder reranking (slower, more accurate)
+                        </label>
                     </div>
                 </div>
             </div>
@@ -159,6 +176,7 @@
 
             const embeddingModel = document.getElementById('embedding-model').value;
             const llmModel = document.getElementById('llm-model').value;
+            const crossEncoderEnabled = document.getElementById('cross-encoder-enabled').checked;
 
             showLoading();
             hideResponse();
@@ -169,6 +187,7 @@
                 formData.append('question', question);
                 formData.append('embedding_model', embeddingModel);
                 formData.append('llm_model', llmModel);
+                formData.append('use_cross_encoder', crossEncoderEnabled);
 
                 const response = await fetch('/query', {
                     method: 'POST',

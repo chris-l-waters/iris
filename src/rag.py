@@ -265,7 +265,11 @@ class SimpleRAG:
         print(f"Loaded {len(docs_to_process)} documents with {len(chunks)} chunks")
 
     def retrieve_context(
-        self, question: str, top_k: int = 3, return_metadata: bool = False
+        self,
+        question: str,
+        top_k: int = 3,
+        return_metadata: bool = False,
+        use_cross_encoder: bool = False,
     ):
         """Retrieve relevant context for a question."""
         store = self._ensure_vector_store()
@@ -273,11 +277,68 @@ class SimpleRAG:
         # Generate query embedding
         query_embedding = self.processor.generate_embeddings([question])[0]
 
+        # Determine initial search count based on cross-encoder usage
+        if use_cross_encoder:
+            # Retrieve more candidates for reranking
+            from .cross_encoder import get_cross_encoder_manager
+
+            cross_encoder = get_cross_encoder_manager()
+            if cross_encoder.is_available():
+                initial_top_k = max(top_k, config.cross_encoder_rerank_top_k)
+            else:
+                initial_top_k = top_k
+                use_cross_encoder = False  # Fallback to vector-only
+        else:
+            initial_top_k = top_k
+
         # Search for similar chunks
-        results = store.similarity_search(query_embedding, top_k=top_k)
+        results = store.similarity_search(query_embedding, top_k=initial_top_k)
 
         # Apply enhanced document-aware ranking
         results = self.ranker.rank_results(results)
+
+        # Apply cross-encoder reranking if requested
+        if use_cross_encoder:
+            # Prepare passages for reranking - convert results to expected format
+            passages = []
+            for result in results:
+                passage = {
+                    "text": result.get("chunk_text", ""),
+                    "metadata": {
+                        "filename": result.get("filename"),
+                        "chunk_index": result.get("chunk_index"),
+                        "doc_number": result.get("doc_number"),
+                        "vector_score": result.get("similarity_score", 0.0),
+                    },
+                }
+                # Copy any additional metadata
+                for key, value in result.items():
+                    if key not in [
+                        "chunk_text",
+                        "filename",
+                        "chunk_index",
+                        "doc_number",
+                        "similarity_score",
+                    ]:
+                        passage["metadata"][key] = value
+                passages.append(passage)
+
+            # Rerank with cross-encoder
+            reranked_passages = cross_encoder.rerank_passages(question, passages)
+
+            # Convert back to original format
+            results = []
+            for passage in reranked_passages[:top_k]:  # Limit to requested top_k
+                result = {
+                    "chunk_text": passage["text"],
+                    "cross_encoder_score": passage.get("cross_encoder_score"),
+                }
+                # Copy metadata back
+                result.update(passage["metadata"])
+                results.append(result)
+        else:
+            # Limit to requested top_k for standard vector search
+            results = results[:top_k]
 
         if return_metadata:
             return results
@@ -294,6 +355,7 @@ class SimpleRAG:
         max_k: int = None,
         return_context: bool = False,
         keep_model_loaded: bool = False,
+        use_cross_encoder: bool = False,
     ):
         """Process a query using RAG pipeline."""
         if not question.strip():
@@ -312,12 +374,21 @@ class SimpleRAG:
         if return_context:
             # Get full metadata for context display
             context_results = self.retrieve_context(
-                question, top_k=retrieval_limit, return_metadata=True
+                question,
+                top_k=retrieval_limit,
+                return_metadata=True,
+                use_cross_encoder=use_cross_encoder,
             )
             context_chunks = [result["chunk_text"] for result in context_results]
         else:
-            context_chunks = self.retrieve_context(question, top_k=retrieval_limit)
-            context_results = None
+            # We need metadata for citations even when not returning context
+            context_results = self.retrieve_context(
+                question,
+                top_k=retrieval_limit,
+                return_metadata=True,
+                use_cross_encoder=use_cross_encoder,
+            )
+            context_chunks = [result["chunk_text"] for result in context_results]
 
         if not context_chunks:
             return f"No relevant policy information found for: '{question}'"
@@ -333,6 +404,7 @@ class SimpleRAG:
                     max_k,
                     return_context=True,
                     keep_alive=keep_alive,
+                    context_results=context_results,
                 )
                 # Convert fitted chunks back to metadata format for display
                 fitted_results = []
@@ -350,6 +422,7 @@ class SimpleRAG:
                     max_k,
                     return_context=False,
                     keep_alive=keep_alive,
+                    context_results=context_results,
                 )
                 return response
 

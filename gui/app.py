@@ -19,6 +19,7 @@ from src.config import (  # noqa: E402
     DEFAULT_WEB_PORT,
     DEFAULT_WEB_HOST,
     DEFAULT_QUERY_TIMEOUT,
+    config,
 )
 
 app = Flask(__name__)
@@ -33,17 +34,9 @@ OLLAMA_SERVER_PROCESS = None
 running_tasks = {}
 
 # Security: Define allowed values for user inputs
-ALLOWED_EMBEDDING_MODELS = {
-    "all-MiniLM-L6-v2",
-    "all-mpnet-base-v2",
-    "BAAI/bge-base-en-v1.5",
-}
+# Embedding models are now dynamically loaded from config.yml
 
-ALLOWED_LLM_MODELS = {
-    "llama3.2:1b-instruct-q4_K_M",
-    "llama3.2:3b-instruct-q4_K_M",
-    "mistral:7b-instruct-q4_K_M",
-}
+# LLM models are now dynamically loaded from config.yml
 
 
 def validate_input(value, max_length=1000):
@@ -200,11 +193,25 @@ def index():
     # System is ready when both docs and LLM are available
     system_ready = docs_loaded and llm_available
 
+    # Get available models from config for dynamic dropdown generation
+    available_llm_models = config.llm_models
+    available_embedding_models = config.embedding_models
+
+    # Sort models by tier for logical ordering
+    sorted_llm_models = sorted(
+        available_llm_models.items(), key=lambda x: x[1].get("tier", 0)
+    )
+    sorted_embedding_models = sorted(
+        available_embedding_models.items(), key=lambda x: x[1].get("tier", 0)
+    )
+
     return render_template(
         "index.html",
         hardware_info=hardware_info,
         docs_loaded=docs_loaded,
         system_ready=system_ready,
+        available_models=sorted_llm_models,
+        available_embedding_models=sorted_embedding_models,
     )
 
 
@@ -215,6 +222,7 @@ def query():
     question = request.form.get("question", "").strip()
     embedding_model = request.form.get("embedding_model", "all-MiniLM-L6-v2")
     llm_model = request.form.get("llm_model", "")
+    use_cross_encoder = request.form.get("use_cross_encoder", "false").lower() == "true"
 
     # Security: Validate all inputs
     if not question:
@@ -223,10 +231,12 @@ def query():
     if not validate_input(question, max_length=2000):
         return jsonify({"error": "Invalid question format or too long"})
 
-    if not validate_model_name(embedding_model, ALLOWED_EMBEDDING_MODELS):
+    # Validate embedding model against config.yml models
+    if embedding_model and embedding_model not in config.embedding_models:
         return jsonify({"error": "Invalid embedding model"})
 
-    if not validate_model_name(llm_model, ALLOWED_LLM_MODELS):
+    # Validate LLM model against config.yml models
+    if llm_model and llm_model not in config.llm_models:
         return jsonify({"error": "Invalid LLM model"})
 
     try:
@@ -244,6 +254,10 @@ def query():
         # Add keep_model_loaded flag if model is hot-loaded
         if HOT_LOADED_MODEL == llm_model:
             cmd.append("--keep-model-loaded")
+
+        # Add cross-encoder flag if enabled
+        if use_cross_encoder:
+            cmd.append("--xencode")
 
         # Run the query through the CLI (increased timeout for model loading scenarios)
         timeout = (
@@ -283,7 +297,8 @@ def load_docs():
     selected_folders_json = request.form.get("selected_folders", "[]")
 
     # Security: Validate embedding model
-    if not validate_model_name(embedding_model, ALLOWED_EMBEDDING_MODELS):
+    # Validate embedding model against config.yml models
+    if embedding_model and embedding_model not in config.embedding_models:
         return jsonify({"error": "Invalid embedding model"})
 
     try:
@@ -466,8 +481,8 @@ def load_model():
     if not llm_model:
         return jsonify({"error": "No model specified"})
 
-    # Security: Validate model name
-    if not validate_model_name(llm_model, ALLOWED_LLM_MODELS):
+    # Security: Validate model name against config.yml models
+    if llm_model and llm_model not in config.llm_models:
         return jsonify({"error": "Invalid model name"})
 
     # Check if ollama server is running first

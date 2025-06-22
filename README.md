@@ -4,9 +4,12 @@ A portfolio project demonstrating edge AI deployment for querying DOD Directives
 
 ## Features
 
-- **DOD Document Intelligence**: Context-aware retrieval with hierarchical boosting for document relationships AND adjacent chunk proximity within same documents
+- **Advanced Retrieval System**: 
+  - **Cross-encoder Reranking**: Optional two-stage retrieval with cross-encoder models for improved result quality
+  - **Document-aware Ranking**: Hierarchical boosting for document relationships and adjacent chunk proximity
 - **Semantic Search**: Vector similarity search using SentenceTransformers embeddings with contextual responses
 - **Adaptive Hardware Detection**: Automatically detects system capabilities and recommends optimal configurations
+- **Centralized Configuration**: All models and settings managed through `config.yml` for easy customization
 - **Web Interface**: Intuitive GUI with folder selection, live terminal output, and real-time status monitoring
 - **Offline Operation**: Complete offline functionality with lightweight, file-based vector database
 
@@ -15,7 +18,7 @@ A portfolio project demonstrating edge AI deployment for querying DOD Directives
 ### Download DOD Issuances
 To generate the vector database, you will need to manually download the policies from https://esd.whs.mil/. This README assumes you will save them to policies/dodi, policies/dodm, and policies/dodd. As of 19 June 2025 there were 1005 documents retrievable from this site.
 
-Alternatively, a .torrent with prebuilt vector databases and policy PDFs can be used: 
+Alternatively, a .torrent with prebuilt vector databases and policy PDFs can be used. This will get you querying much faster: 
 ```magnet:?xt=urn:btih:566FC09B4D96054B309BCD5EBA69B3CE971A77A0&dn=iris_database&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce```
 
 ### Setup (Windows)
@@ -84,8 +87,11 @@ python3 gui/app.py
 ### Dependencies
 - **Document Processing**: pdfplumber, SentenceTransformers
 - **Vector Database**: ChromaDB, NumPy
+- **Cross-encoder Reranking**: sentence-transformers (cross-encoder models)
 - **Hardware Detection**: psutil, GPUtil
 - **LLM Integration**: Ollama
+- **Configuration**: PyYAML
+- **Web Interface**: Flask
 
 ### Hardware Recommendations
 
@@ -100,15 +106,14 @@ python3 gui/app.py
 #### Embedding Models (Semantic Search)
 - **4-8GB RAM**: all-MiniLM-L6-v2 (fast processing - default)
 - **8-16GB RAM**: all-mpnet-base-v2 (policy documents)
-- **16GB+ RAM**: BAAI/bge-base-en-v1.5 (high accuracy)
+- **16GB+ RAM**: mixedbread-ai/mxbai-embed-large-v1 (best retrieval)
 
 ## Using the GUI
 
 #### Initial Setup
-1. **Start Ollama Server**: Use the "Ollama Server Control" panel to start the Ollama server
+1. **Choose Embedding Model**: Select your preferred embedding model for processing (all-MiniLM-L6-v2, all-mpnet-base-v2, or mixedbread-ai/mxbai-embed-large-v1)
 2. **Select Document Folders**: Click "Select Document Folders" to choose directories containing PDF files
-3. **Choose Embedding Model**: Select your preferred embedding model for processing (all-MiniLM-L6-v2, all-mpnet-base-v2, or BAAI/bge-base-en-v1.5)
-4. **Process Documents**: Click "Process and Generate Embeddings" to start document processing
+3. **Process Documents**: Click "Process and Generate Embeddings" to start document processing
 
 #### Document Processing
 - **Live Terminal Output**: Watch real-time command output in the terminal-style display
@@ -116,14 +121,24 @@ python3 gui/app.py
 - **Auto-completion**: Process completes automatically and updates system status
 
 #### Querying
-1. **Model Selection**: Choose your preferred LLM model - it loads automatically when selected
-2. **Real-time Status**: Monitor system readiness with live status indicators for docs, models, and server
-3. **Ask Questions**: Query your processed documents and get intelligent, contextual responses
+1. **Start Ollama Server**: Use the "Ollama Server Control" panel to start the Ollama server
+2. **Model Selection**: Choose your preferred LLM and embedding models - they load automatically when selected
+3. **Advanced Options**: Enable cross-encoder reranking for improved result quality (slower but more accurate)
+4. **Real-time Status**: Monitor system readiness with live status indicators for docs, models, and server
+5. **Ask Questions**: Query your processed documents and get intelligent, contextual responses with automatic citations
 
 ### Example Queries
 - "Who is the decision authority for an ACAT ID program?"
-- "What is the policy on personnel security?"
+- "When is a CAPE AOA requried for an MDAP?"
 - "How are performance evaluations conducted?"
+
+**Sample Response with Citations:**
+```
+Response:
+Based on DOD policies: For an ACAT ID program, the decision authority is typically either the Defense Acquisition Executive (DAE) or a designee. This can be inferred from Section 2430(d)(3)(A) of Title 10 U.S.C., which states that for programs where "the USD(A&S) has designated [an alternate MDA],... the Secretary of the Military Department concerned, or designee," may request reversion back to the SAE. Additionally, it is mentioned in Section 2430(d)(2), stating: "The service acquisition executive (SAE)...will review ACAT IB programs unless otherwise specified." Therefore, for an ACAT ID program specifically designated as such by the USD(A&S) and not delegated elsewhere within DoD Policy, either the DAE or a designee would typically have decision authority.
+
+Sources: 5000.01, 5000.02, 5000.82, 5000.85
+```
 
 ## LLM Model Considerations
 
@@ -132,18 +147,18 @@ GPU acceleration will be used if available; querying delays may be frustrating o
 | Model | Parameters | RAM Usage | Speed | Quality | Best For |
 |-------|------------|-----------|-------|---------|----------|
 | TinyLlama 1.1B Chat Q4 | 1.1B | 2-4GB | Fastest | Basic | Minimum systems |
-| Llama 3.2 1B Instruct Q4 | 1B | 4-6GB | Very Fast | OK | Low-end systems |
-| Llama 3.2 3B Instruct Q4 | 3.2B | 6-8GB | Fast | Good | Standard systems |
-| Gemma2 9B Instruct Q4 | 9B | 8-12GB | Medium | Very Good | High-end systems |
-| Phi4 Mini | 14B | 12GB+ | Slower | Excellent | Premium systems |
+| Llama 3.2 1B Instruct Q4 | 1B | 4-6GB | Very Fast | Good | Low-end systems |
+| Llama 3.2 3B Instruct Q4 | 3.2B | 6-8GB | Fast | Very Good | Standard systems |
+| Gemma2 9B Instruct Q4 | 9B | 8-12GB | Medium | Excellent | High-end systems |
+| Phi4 Mini | 14B | 12GB+ | Slower | Best | Premium systems |
 
 #### Embedding Model Performance
 
 | Model | Quality Score | Speed | RAM Usage | Best For |
 |-------|---------------|-------|-----------|----------|
 | all-MiniLM-L6-v2 | 81.3 | Fastest | 200MB | Fast processing |
-| all-mpnet-base-v2 | 84.8 | Slower | 800MB | Policy documents |
-| BAAI/bge-base-en-v1.5 | 85.2 | Slowest | 850MB | High accuracy |
+| all-mpnet-base-v2 | 84.8 | Fast | 800MB | Policy documents |
+| mixedbread-ai/mxbai-embed-large-v1 | 87.2 | Medium | 1200MB | Best retrieval |
 
 ## Advanced CLI Usage Examples
 
@@ -159,32 +174,76 @@ python3 -m src.cli --load-docs --doc-dirs policies/test
 # Load multiple directories (full pipeline)
 python3 -m src.cli --load-docs --doc-dirs policies/dodd policies/dodi policies/dodm
 
-# Save intermediate processing results (faster iteration)
-python3 -m src.cli --load-docs --doc-dirs policies/dodd policies/dodi policies/dodm --save-intermediate processed_docs.json
-
-# Load from intermediate JSON and generate embeddings
-python3 -m src.cli --load-intermediate processed_docs.json --embedding-model all-MiniLM-L6-v2
-
 # Show detailed processing information (verbose mode)
 python3 -m src.cli --load-docs --doc-dirs policies/dodd policies/dodi policies/dodm --verbose
 
 # Query from command line
 python3 -m src.cli --query "What are the requirements for security clearances?"
 
+# Query with cross-encoder reranking for improved accuracy
+python3 -m src.cli --query "Who has ACAT delegation authority?" --xencode
+
+# Use specific embedding model
+python3 -m src.cli --query "your question" --embedding-model mixedbread-ai/mxbai-embed-large-v1
+
 # Use any Ollama-supported model
 python3 -m src.cli --query "your question" --model-name any-ollama-model
+
+# Show retrieved context chunks with query response
+python3 -m src.cli --query "your question" --show-context
 ```
 
 **Note**: The CLI supports any model available in Ollama. The GUI focuses on the recommended models for optimal user experience, but CLI users can specify any model name that Ollama supports.
 
 ## Configuration and Customization
 
-### Prompt Templates
+### Centralized Configuration
 
-IRIS uses configurable prompt templates stored in `config.yml` for maximum flexibility. You can customize how the system instructs LLMs to respond to queries by editing the prompt templates:
+IRIS uses a centralized `config.yml` file for all system settings, making customization easy and consistent across the entire application.
+
+#### Model Configurations
+
+Both LLM and embedding models are configured in `config.yml`:
 
 ```yaml
-# config.yml
+# LLM Models (automatically detected by GUI)
+llm:
+  models:
+    "llama3.2:1b-instruct-q4_K_M":
+      tier: 1
+      max_tokens: 400
+      temperature: 0.7
+      context_window: 4096
+      prompt_style: "instruct"
+
+# Embedding Models (automatically detected by GUI)  
+embedding_models:
+  "all-MiniLM-L6-v2":
+    tier: 0
+    ram_usage_mb: 200
+    quality_score: 81.3
+    best_for: "Fast processing"
+```
+
+#### Cross-encoder Reranking
+
+Configure cross-encoder settings for improved retrieval quality:
+
+```yaml
+retrieval:
+  cross_encoder:
+    model_name: "cross-encoder/ms-marco-MiniLM-L6-v2"
+    rerank_top_k: 20      # Candidates to rerank
+    final_top_k: 10       # Final results returned
+    batch_size: 8         # Inference batch size
+    max_length: 512       # Max tokens per query+passage pair
+```
+
+#### Prompt Templates
+
+Customize how the system instructs LLMs to respond:
+
+```yaml
 prompts:
   simple:      # For TinyLlama models
     template: |
@@ -199,10 +258,6 @@ prompts:
     template: |
       ### System:
       You are an expert assistant for Department of Defense policy questions...
-  
-  mistral:     # For Mistral models
-    template: |
-      [INST] You are a helpful assistant that answers questions...
 ```
 
 **Key benefits:**
@@ -252,7 +307,7 @@ python3 -m src.cli --load-docs --doc-dirs policies/dodd policies/dodi policies/d
 # Test different embedding models quickly
 python3 -m src.cli --load-intermediate processed_docs.json --embedding-model all-MiniLM-L6-v2
 python3 -m src.cli --load-intermediate processed_docs.json --embedding-model all-mpnet-base-v2
-python3 -m src.cli --load-intermediate processed_docs.json --embedding-model BAAI/bge-base-en-v1.5
+python3 -m src.cli --load-intermediate processed_docs.json --embedding-model mixedbread-ai/mxbai-embed-large-v1
 ```
 
 **Benefits:**
@@ -284,14 +339,14 @@ gui/
     └── style.css         # CSS with terminal styling and responsive design
 
 database/                 # ChromaDB vector database (auto-created)
-├── chroma.sqlite3       # ChromaDB metadata and collections
-└── [uuid-dirs]/         # Collection data (binary files)
+├── chroma.sqlite3        # ChromaDB metadata and collections
+└── [uuid-dirs]/          # Collection data (binary files)
 
-policies/                 # DOD document collection (downloaded separately)
-├── dodd/                 # DOD Directives (259 files)
-├── dodi/                 # DOD Instructions (638 files)
-├── dodm/                 # DOD Manuals (112 files)
-└── test/                 # Test subset (25 files)
+(policies/)               # DOD document collection (downloaded separately)
+├── (dodd/)               # DOD Directives (259 files)
+├── (dodi/)               # DOD Instructions (638 files)
+├── (dodm/)               # DOD Manuals (112 files)
+└── (test/)               # Test subset (25 files)
 
 tests/                    # Test suite
 ├── test_documents.py     # Document processing tests
@@ -299,11 +354,6 @@ tests/                    # Test suite
 ├── test_llm.py           # LLM integration tests
 ├── test_rag.py           # RAG functionality tests
 └── test_vectorstore.py   # Vector database tests
-
-debug/                    # Development debugging tools
-├── rag_debug.py          # RAG pipeline debugging
-├── pipeline_trace.py     # Processing pipeline analysis
-└── ...                   # Various debugging utilities
 
 config.yml                # YAML configuration file with model settings and prompt templates
 start_gui.py              # GUI launcher script
@@ -322,7 +372,7 @@ Makefile                  # Build and setup automation
 - **Step 2**: Optional intermediate JSON save enables faster iteration and debugging
 - **Step 3**: Embedding generation converts text chunks to vectors for semantic search
 - **Step 4**: Vector database storage in model-specific ChromaDB files with DOD metadata
-- Most of the reason this runs slowly is due to the pdfplumber table detection. Luckily, it only needs to be done once.
+- Pdfplumber table detection and vector generation both take significant time, especially on the advanced embedding models. Luckily, it only needs to be done once.
 
 #### DOD Document Intelligence Features
 - **Number Extraction**: Robust extraction †of DOD directive numbers (DODD/DODI/DODM) from filenames and content
@@ -334,32 +384,31 @@ Makefile                  # Build and setup automation
 ## Performance Benchmarks
 #### Document Extraction + Embeddings
 
-| System Configuration | Document Extraction | all-MiniLM-L6-v2 | all-mpnet-base-v2 | BAAI/bge-base-en-v1.5 | Vector DB Size |
+| System Configuration | Document Extraction | all-MiniLM-L6-v2 | all-mpnet-base-v2 | mixedbread-ai/mxbai-embed-large-v1 | Vector DB Size |
 |----------------------|--------------------|--------------------|-------------------|----------------------|----------------|
-| **M4 MacBook Pro**<br>10 core CPU/GPU, 16GB RAM | 11m 54s | 52s | 6m 2s | 6m 58s | 742mb |
-| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | 5m 14s | 1m 33s | 17m 27s | 17m 16s | 1.8GB |
-| **AMD 5600X + GTX 1080**<br>32GB RAM, 8GB VRAM, Pop!_OS 22.04 | 9m 57s | 37.5s | 4m 32s | 5m 17s | 1.6GB |
+| **M4 Mac Mini**<br>10 core CPU/GPU, 16GB RAM | X | X | X | X | X |
+| **AMD 9800X3D**<br>64GB RAM, Pop!_OS 22.04 | X | X | X | X | X |
 
 #### Query Response Performance Benchmarks
 ##### Test Query: *"What ACAT levels delegate decision authority to the service components?"*
 
 | M4, 10 core CPU/GPU | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | 6.4s | 9.4s | 6.5s | 53s | 35s |
-| **all-mpnet-base-v2** | 9.4s† | 9.4s | 10.5s | 58s†* | 38.4s |
-| **BAAI/bge-base-en-v1.5** | 9.5s | 7.9s† | 17.1s† | 62s | 33.8s† |
+| **all-MiniLM-L6-v2** | X | X | X | X | X |
+| **all-mpnet-base-v2** | X | X | X | X | X |
+| **mixedbread-ai/mxbai-embed-large-v1** | X | X | X | X | X |
 
 | 9800X3D/6950XT | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | 2.4s | 2.8s† | 4.1s | 16.3s | 13.4s |
-| **all-mpnet-base-v2** | 4.1s† | 3.4s | 2.3s† | 21.4s† | 12.3s†* |
-| **BAAI/bge-base-en-v1.5** | 3.9s | 3.8s | 6.0s | 23.9s | 9.9s |
+| **all-MiniLM-L6-v2** | X | X | X | X | X |
+| **all-mpnet-base-v2** | X | X | X | X | X |
+| **mixedbread-ai/mxbai-embed-large-v1** | X | X | X | X | X |
 
-| 5600X/GTX 1080  | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
+| 9800X3D (no GPU) | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | 5.6s | 5.3s | 5.4s | 26.4s | 24.4s |
-| **all-mpnet-base-v2** | 3.6s† | 5.5s | 4.8s | 35.4s† | 19.2s†* |
-| **BAAI/bge-base-en-v1.5** | 2.7s | 8.2s† | 8.4s† | 53.7s | 29.1s |
+| **all-MiniLM-L6-v2** | X | X | X | X | X |
+| **all-mpnet-base-v2** | X | X | X | X | X |
+| **mixedbread-ai/mxbai-embed-large-v1** | X | X | X | X | X |
 
 † - best per model * best overall
 

@@ -5,9 +5,12 @@ Clean implementation following the hierarchical decision tree.
 
 import json
 import logging
+import multiprocessing
 import os
 import re
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -1373,6 +1376,19 @@ class UnifiedChunker:
         return [chunk for chunk in chunks if chunk.strip()]
 
 
+# Module-level worker function for parallel processing
+def _process_single_document_worker(
+    pdf_path_str: str, embedding_model: str, enable_header_footer_removal: bool
+) -> Dict:
+    """Worker function for parallel document processing - must be module-level for pickling."""
+    # Create a new DocumentProcessor instance in each worker process
+    processor = DocumentProcessor(
+        embedding_model=embedding_model,
+        enable_header_footer_removal=enable_header_footer_removal,
+    )
+    return processor.process_document(pdf_path_str, quiet=True)
+
+
 # Legacy compatibility classes and functions
 class PDFExtractor:
     """Legacy PDF extraction for compatibility."""
@@ -1451,6 +1467,7 @@ class DocumentProcessor:
         self,
         embedding_model: str = "all-MiniLM-L6-v2",
         enable_header_footer_removal: bool = True,
+        max_workers: int = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.quiet_mode = False
@@ -1464,6 +1481,9 @@ class DocumentProcessor:
 
         # For compatibility
         self.enable_header_footer_removal = enable_header_footer_removal
+
+        # Parallel processing configuration
+        self.max_workers = max_workers or min(multiprocessing.cpu_count(), 4)
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Extract text from PDF file."""
@@ -1554,6 +1574,110 @@ class DocumentProcessor:
 
         self.logger.info(f"Successfully processed {len(processed_docs)} documents")
         return processed_docs
+
+    def process_directory_parallel(
+        self,
+        directory: str,
+        show_dir_info: bool = True,
+        verbose: bool = False,
+        use_processes: bool = True,
+    ) -> List[Dict]:
+        """Process all PDF files in directory using parallel processing."""
+        pdf_files = list(Path(directory).glob("*.pdf"))
+
+        if show_dir_info:
+            print(f"Found {len(pdf_files)} PDF files in {directory}")
+            print(
+                f"Processing with {self.max_workers} workers ({'processes' if use_processes else 'threads'})"
+            )
+
+        if len(pdf_files) <= 1:
+            # Single file - use sequential processing
+            return self.process_directory(
+                directory, show_dir_info=False, verbose=verbose
+            )
+
+        processed_docs = []
+
+        # Choose executor type based on workload
+        ExecutorClass = ProcessPoolExecutor if use_processes else ThreadPoolExecutor
+
+        with ExecutorClass(max_workers=self.max_workers) as executor:
+            if use_processes:
+                # For ProcessPoolExecutor, use the static worker function
+                worker_func = partial(
+                    _process_single_document_worker,
+                    embedding_model=self.embedding_manager.model_name,
+                    enable_header_footer_removal=self.enable_header_footer_removal,
+                )
+                future_to_path = {
+                    executor.submit(worker_func, str(pdf_path)): pdf_path
+                    for pdf_path in pdf_files
+                }
+            else:
+                # For ThreadPoolExecutor, can use instance method
+                future_to_path = {
+                    executor.submit(
+                        self.process_document, str(pdf_path), True
+                    ): pdf_path
+                    for pdf_path in pdf_files
+                }
+
+            # Process completed futures as they finish
+            completed_count = 0
+            for future in as_completed(future_to_path):
+                pdf_path = future_to_path[future]
+                completed_count += 1
+
+                try:
+                    doc_data = future.result()
+                    if doc_data:
+                        processed_docs.append(doc_data)
+
+                    if verbose:
+                        print(
+                            f"\rProcessed {completed_count}/{len(pdf_files)}: {pdf_path.name:<50}",
+                            end="",
+                            flush=True,
+                        )
+
+                except Exception as e:
+                    self.logger.error(f"Error processing {pdf_path}: {e}")
+                    if verbose:
+                        print(
+                            f"\rFailed {completed_count}/{len(pdf_files)}: {pdf_path.name:<50}",
+                            end="",
+                            flush=True,
+                        )
+
+        if verbose:
+            print()  # New line after progress
+
+        self.logger.info(
+            f"Successfully processed {len(processed_docs)} documents in parallel"
+        )
+        return processed_docs
+
+    def process_directory_adaptive(
+        self, directory: str, show_dir_info: bool = True, verbose: bool = False
+    ) -> List[Dict]:
+        """Automatically choose best processing method based on file count and system resources."""
+        pdf_files = list(Path(directory).glob("*.pdf"))
+
+        # Use parallel processing for 3+ files, otherwise sequential
+        if len(pdf_files) >= 3 and self.max_workers > 1:
+            if show_dir_info:
+                print(
+                    f"Using parallel processing ({self.max_workers} workers) for {len(pdf_files)} files"
+                )
+            # Use processes for CPU-bound work (PDF extraction/parsing)
+            return self.process_directory_parallel(
+                directory, show_dir_info, verbose, use_processes=True
+            )
+        else:
+            if show_dir_info and len(pdf_files) > 0:
+                print(f"Using sequential processing for {len(pdf_files)} files")
+            return self.process_directory(directory, show_dir_info, verbose)
 
 
 class EmbeddingManager:

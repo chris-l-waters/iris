@@ -19,6 +19,7 @@ document_processing:
     target_chunk_size: 700     # Optimal size for semantic coherence across all LLM tiers
     min_chunk_size: 200        # Don't split sections smaller than this
     max_chunk_size: 1200       # Force split if larger than this
+    max_table_chunk_size: 450  # Allow larger chunks for tables to preserve structure
     enable_hierarchical_grouping: true  # Group subsections under parent sections
   
   # Performance optimization settings

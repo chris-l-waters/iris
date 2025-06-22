@@ -23,16 +23,13 @@ def load_config() -> Dict[str, Any]:
         # Fallback to default values if config file doesn't exist
         return {
             "document_processing": {
-                "default_chunk_size": 500,
+                "default_chunk_size": 300,
                 "default_chunk_overlap": 50,
-                "enable_sectional_chunking": True,
-                "max_section_chunk_size": 800,
-                "section_split_threshold": 1200,
-                "preserve_subsection_integrity": True,
                 "sectional_chunking": {
-                    "target_chunk_size": 700,
-                    "min_chunk_size": 200,
-                    "max_chunk_size": 1200,
+                    "target_chunk_size": 300,
+                    "min_chunk_size": 150,
+                    "max_chunk_size": 400,
+                    "max_table_chunk_size": 450,
                     "enable_hierarchical_grouping": True,
                 },
                 "header_footer_zone_ratio": 0.1,
@@ -278,23 +275,12 @@ DEFAULT_CHUNK_SIZE = config.default_chunk_size
 DEFAULT_CHUNK_OVERLAP = config.default_chunk_overlap
 
 # Sectional chunking constants
-ENABLE_SECTIONAL_CHUNKING = _config["document_processing"]["enable_sectional_chunking"]
-MAX_SECTION_CHUNK_SIZE = _config["document_processing"]["max_section_chunk_size"]
-SECTION_SPLIT_THRESHOLD = _config["document_processing"]["section_split_threshold"]
-PRESERVE_SUBSECTION_INTEGRITY = _config["document_processing"][
-    "preserve_subsection_integrity"
-]
-
-# Hierarchical sectional chunking constants
 SECTIONAL_CHUNKING_CONFIG = _config["document_processing"]["sectional_chunking"]
 TARGET_CHUNK_SIZE = SECTIONAL_CHUNKING_CONFIG["target_chunk_size"]
 MIN_CHUNK_SIZE = SECTIONAL_CHUNKING_CONFIG["min_chunk_size"]
 MAX_CHUNK_SIZE = SECTIONAL_CHUNKING_CONFIG["max_chunk_size"]
+MAX_TABLE_CHUNK_SIZE = SECTIONAL_CHUNKING_CONFIG["max_table_chunk_size"]
 ENABLE_HIERARCHICAL_GROUPING = SECTIONAL_CHUNKING_CONFIG["enable_hierarchical_grouping"]
-
-# Performance optimization constants
-ENABLE_SECTION_CACHING = _config["document_processing"]["enable_section_caching"]
-MAX_CACHE_ENTRIES = _config["document_processing"]["max_cache_entries"]
 
 HEADER_FOOTER_ZONE_RATIO = _config["document_processing"]["header_footer_zone_ratio"]
 LINE_TOLERANCE_PIXELS = _config["document_processing"]["line_tolerance_pixels"]

@@ -20,6 +20,7 @@ from .config import (
     DEFAULT_CHUNK_SIZE,
     FIRST_PAGE_SAMPLE_CHARS,
     MAX_CHUNK_SIZE,
+    MAX_TABLE_CHUNK_SIZE,
     MIN_CHUNK_SIZE,
     MIN_LINE_LENGTH,
     TARGET_CHUNK_SIZE,
@@ -816,9 +817,9 @@ class UnifiedChunker:
             text_before = "\n".join(lines[last_pos:table_start])
             table_text = "\n".join(lines[table_start : table_end + 1])
 
-            # Check if table itself is too large
+            # Check if table itself is too large (use larger limit for tables)
             table_words = len(table_text.split())
-            if table_words > MAX_CHUNK_SIZE:
+            if table_words > MAX_TABLE_CHUNK_SIZE:
                 # Split large table
                 table_chunks = self._split_large_table(table_text)
 
@@ -836,7 +837,7 @@ class UnifiedChunker:
                 )
                 combined_words = len(combined.split())
 
-                if combined_words <= MAX_CHUNK_SIZE:
+                if combined_words <= MAX_TABLE_CHUNK_SIZE:
                     chunks.append(combined)
                 else:
                     # Separate chunks
@@ -861,7 +862,7 @@ class UnifiedChunker:
         return [chunk for chunk in chunks if chunk.strip()]
 
     def _split_large_table(self, table_text: str) -> List[str]:
-        """Split a table that's larger than MAX_CHUNK_SIZE."""
+        """Split a table that's larger than MAX_TABLE_CHUNK_SIZE."""
         lines = table_text.split("\n")
         chunks = []
         current_chunk = []
@@ -1418,7 +1419,23 @@ class EmbeddingManager:
         if self.model is None:
             if not self.quiet_mode:
                 self.logger.info(f"Loading embedding model: {self.model_name}")
-            self.model = SentenceTransformer(self.model_name)
+
+            # Check if model requires trust_remote_code
+            from .embedding_models import get_model_info
+
+            model_info = get_model_info(self.model_name)
+            trust_remote_code = model_info.get("trust_remote_code", False)
+
+            if trust_remote_code:
+                if not self.quiet_mode:
+                    self.logger.warning(
+                        f"Model {self.model_name} requires trust_remote_code=True"
+                    )
+                self.model = SentenceTransformer(
+                    self.model_name, trust_remote_code=True
+                )
+            else:
+                self.model = SentenceTransformer(self.model_name)
         return self.model
 
     def generate_embeddings(self, texts: List[str]) -> np.ndarray:

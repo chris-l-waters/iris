@@ -387,6 +387,7 @@ Examples:
             "all-MiniLM-L6-v2",
             "all-mpnet-base-v2",
             "BAAI/bge-base-en-v1.5",
+            "mixedbread-ai/mxbai-embed-large-v1",
         ],
         help="Embedding model for semantic search (default: all-MiniLM-L6-v2)",
     )

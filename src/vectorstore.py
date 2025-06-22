@@ -360,7 +360,12 @@ class SimpleVectorStore:
             raise
 
     def close(self):
-        """Close database connection."""
-        # ChromaDB doesn't require explicit connection closing
-        # PersistentClient automatically handles data persistence
-        pass
+        """Close database connection and clean up resources."""
+        try:
+            if hasattr(self, "client") and self.client:
+                # Reset the client to None to close connections
+                self.client = None
+                self.collection = None
+                self.logger.debug("ChromaDB client closed successfully")
+        except Exception as e:
+            self.logger.warning("Error closing ChromaDB client: %s", e)

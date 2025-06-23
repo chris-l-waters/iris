@@ -54,7 +54,10 @@ def validate_input(value, max_length=1000):
     if blocked_chars:
         unique_chars = list(set(blocked_chars))
         char_list = "', '".join(unique_chars)
-        return False, f"Invalid characters not allowed: '{char_list}'. Please remove these characters and try again."
+        return (
+            False,
+            f"Invalid characters not allowed: '{char_list}'. Please remove these characters and try again.",
+        )
 
     return True, ""
 

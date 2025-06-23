@@ -42,17 +42,21 @@ running_tasks = {}
 def validate_input(value, max_length=1000):
     """Validate user input for security."""
     if not value:
-        return True  # Empty values are ok
+        return True, ""  # Empty values are ok
 
     # Check length
     if len(value) > max_length:
-        return False
+        return False, f"Input too long (max {max_length} characters)"
 
     # Check for dangerous characters that could be used for injection
-    if re.search(r"[;&|`$(){}\[\]<>\\]", value):
-        return False
+    # Allow semicolons, ampersands, and parentheses for natural language queries
+    blocked_chars = re.findall(r"[|`$\{\}\[\]<>\\]", value)
+    if blocked_chars:
+        unique_chars = list(set(blocked_chars))
+        char_list = "', '".join(unique_chars)
+        return False, f"Invalid characters not allowed: '{char_list}'. Please remove these characters and try again."
 
-    return True
+    return True, ""
 
 
 def validate_model_name(model_name, allowed_models):
@@ -228,8 +232,9 @@ def query():
     if not question:
         return jsonify({"error": "Please provide a question"})
 
-    if not validate_input(question, max_length=2000):
-        return jsonify({"error": "Invalid question format or too long"})
+    is_valid, error_message = validate_input(question, max_length=2000)
+    if not is_valid:
+        return jsonify({"error": error_message})
 
     # Validate embedding model against config.yml models
     if embedding_model and embedding_model not in config.embedding_models:

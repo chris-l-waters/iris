@@ -16,10 +16,10 @@ A portfolio project demonstrating edge AI deployment for querying DOD Directives
 ## Quick Start
 
 ### Download DOD Issuances
-To generate the vector database, you will need to manually download the policies from https://esd.whs.mil/. This README assumes you will save them to policies/dodi, policies/dodm, and policies/dodd. As of 19 June 2025 there were 1005 documents retrievable from this site.
+To generate the vector database, you will need to manually download the policies from https://esd.whs.mil/. This README assumes you will save them to policies/dodi, policies/dodm, and policies/dodd. As of 19 June 2025 there were about a thousand documents retrievable from this site.
 
-Alternatively, a .torrent with prebuilt vector databases and policy PDFs can be used. It will likely take several hours to generate embeddings with the highest performer if you lack a CUDA-capable GPU or Apple silicon. This will get you querying much, much faster: 
-```magnet:?xt=urn:btih:566FC09B4D96054B309BCD5EBA69B3CE971A77A0&dn=iris_database&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce```
+Alternatively, a prebuilt vector databases and policy PDFs can be used. It will likely take several hours to generate embeddings with the highest performer if you lack a CUDA-capable GPU or Apple silicon. This will get you querying much, much faster: 
+```https://www.dropbox.com/scl/fi/trgevdgnzkxsbbvzwx3ze/iris-data.zip?rlkey=5uzfu4iwk56lv12n5koqh03wo&st=725nkl6t&dl=0```
 
 ### Setup (Windows)
 
@@ -128,7 +128,7 @@ python3 gui/app.py
 5. **Ask Questions**: Query your processed documents and get intelligent, contextual responses with automatic citations
 
 ### Example Queries
-- "Who is the decision authority for an ACAT ID program?"
+- "What ACAT levels delegate decision authority to the service components?"
 - "When is a CAPE AOA requried for an MDAP?"
 - "How are performance evaluations conducted?"
 
@@ -163,7 +163,7 @@ GPU acceleration will be used if available; querying delays may be frustrating o
 ## Advanced CLI Usage Examples
 
 For advanced users or automation, CLI commands are available:
-
+[GitHub link]
 ```bash
 # Check hardware compatibility
 python3 -m src.cli --info
@@ -401,15 +401,15 @@ Makefile                  # Build and setup automation
 
 | 9800X3D/6950XT | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | X | X | X | X | X |
-| **all-mpnet-base-v2** | X | X | X | X | X |
-| **mixedbread-ai/mxbai-embed-large-v1** | X | X | X | X | X |
+| **all-MiniLM-L6-v2** | 2.6s | 3.6s | 6.1s | 12.7s | 14.0s |
+| **all-mpnet-base-v2** | 2.5s | 3.8s | 6.2s | 15.2s† | 12.1s†* |
+| **mixedbread-ai/mxbai-embed-large-v1** | 4.5s† | 4.6s† | 8.4s† | 14.1s | 11.4s |
 
 | 9800X3D (no GPU) | tinyllama:1.1b-chat-v1-q4_K_M | llama3.2:1b-instruct-q4_K_M | llama3.2:3b-instruct-q4_K_M | gemma2:9b-instruct-q4_K_M | phi4-mini:latest |
 |----------------|------------|------------|------------------------------|----------------------------|------------------|
-| **all-MiniLM-L6-v2** | X | X | X | X | X |
-| **all-mpnet-base-v2** | X | X | X | X | X |
-| **mixedbread-ai/mxbai-embed-large-v1** | X | X | X | X | X |
+| **all-MiniLM-L6-v2** | 7.8s | 2.6s | 27.2s | 132.9s | 64.1s |
+| **all-mpnet-base-v2** | 8.3s† | 10.5s | 20.4s | 148.7s†* | 76.1s |
+| **mixedbread-ai/mxbai-embed-large-v1** | 9.0s | 14.8s† | 38.0s† | 133.7s | 73.7s† |
 
 † - best per model * best overall
 
